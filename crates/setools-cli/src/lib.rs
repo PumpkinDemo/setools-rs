@@ -4,6 +4,7 @@ use std::env;
 use std::fmt;
 use std::process::ExitCode;
 
+mod seinfo;
 mod sesearch;
 
 /// Executable provided by the workspace.
@@ -41,8 +42,10 @@ impl fmt::Display for Tool {
 #[must_use]
 pub fn run(tool: Tool) -> ExitCode {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
-    if tool == Tool::Sesearch {
-        return sesearch::run(arguments);
+    match tool {
+        Tool::Sesearch => return sesearch::run(arguments),
+        Tool::Seinfo => return seinfo::run(arguments),
+        _ => {}
     }
     if arguments.len() == 1 && arguments[0] == "--version" {
         println!("{}", env!("CARGO_PKG_VERSION"));

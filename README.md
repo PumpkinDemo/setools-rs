@@ -13,9 +13,15 @@ builds from this repository using Rust, libsepol, and libselinux only.
 conditionals, filename transitions, RBAC, MLS range transitions,
 running-policy discovery, and verbose/debug diagnostics.
 
-`seinfo`, `sediff`, `sedta`, `seinfoflow`, and `sechecker` are currently
-scaffolds and are not ready for production use. See
-[the progress document](docs/RUST_REWRITE_PROGRESS.md) for details.
+`seinfo` is implemented. It provides the compatibility statistics view and all
+SETools 4.7.1 component queries: symbols, commons and classes, constraints,
+defaults, type bounds, users and MLS data, policy capabilities, and SELinux or
+Xen labeling statements. It supports component filtering, `--all`, `--expand`,
+`--flat`, platform validation, running-policy discovery, and verbose/debug
+diagnostics.
+
+`sediff`, `sedta`, `seinfoflow`, and `sechecker` remain scaffolds. See [the
+progress document](docs/RUST_REWRITE_PROGRESS.md) for details.
 
 ## Requirements
 
@@ -37,38 +43,41 @@ Build the complete workspace:
 cargo build --workspace
 ```
 
-Build only `sesearch`:
+Build the implemented command binaries:
 
 ```bash
-cargo build -p setools-cli --bin sesearch
+cargo build -p setools-cli --bin sesearch --bin seinfo
 ```
 
 Build an optimized binary:
 
 ```bash
-cargo build --release -p setools-cli --bin sesearch
+cargo build --release -p setools-cli --bin sesearch --bin seinfo
 ```
 
 Cargo uses its standard output layout:
 
 ```text
 target/debug/sesearch
+target/debug/seinfo
 target/release/sesearch
+target/release/seinfo
 ```
 
 Install from a checkout with:
 
 ```bash
-cargo install --path crates/setools-cli --bin sesearch
+cargo install --path crates/setools-cli --bin sesearch --bin seinfo
 ```
 
 Example usage:
 
 ```bash
 target/release/sesearch --allow -s sshd_t -t shadow_t /path/to/policy
+target/release/seinfo --type sshd_t --expand /path/to/policy
 ```
 
-If the policy argument is omitted, `sesearch` first tries the current
+If the policy argument is omitted, `sesearch` and `seinfo` first try the current
 SELinuxfs policy and then installed `policy.N` files.
 
 ## Test

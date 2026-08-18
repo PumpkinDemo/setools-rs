@@ -5,21 +5,25 @@
 //! Rust model, and released before [`LibsepolLoader::load`] returns.
 
 use setools_policy::{
-    AttributeId, Boolean, BooleanId, Category, CategoryId, ClassId, Conditional, ConditionalId,
-    ConditionalToken, HandleUnknown, MlsLevel, MlsRange, MlsRule, ObjectClass, Permission,
-    PermissionId, Policy, PolicyLoader, PolicyMetadata, RbacRule, RbacRuleData, Role, RoleId,
-    RuleCondition, Sensitivity, SensitivityId, TargetPlatform, TeRule, TeRuleData, TeRuleKind,
-    TypeId, TypeOrAttributeId, TypeSymbol, XpermKind,
+    AttributeId, Boolean, BooleanId, Category, CategoryId, ClassId, CommonPermissionSet,
+    Conditional, ConditionalId, ConditionalToken, ConstraintExpressionToken, ConstraintKind,
+    ConstraintOperator, ConstraintRule, DefaultRangePart, DefaultRule, DefaultRuleKind,
+    DefaultValue, FsUseKind, HandleUnknown, LabelingRule, MlsLevel, MlsRange, MlsRule, ObjectClass,
+    Permission, PermissionId, Policy, PolicyLoader, PolicyMetadata, PortProtocol, RbacRule,
+    RbacRuleData, Role, RoleId, RuleCondition, SecurityContext, SeinfoData, Sensitivity,
+    SensitivityId, TargetPlatform, TeRule, TeRuleData, TeRuleKind, TypeId, TypeOrAttributeId,
+    TypeSymbol, User, UserId, XpermKind,
 };
 use std::error::Error;
 use std::ffi::{CStr, CString, c_char, c_int};
 use std::fmt;
 use std::marker::PhantomData;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::rc::Rc;
 
-const BRIDGE_ABI_VERSION: u32 = 3;
+const BRIDGE_ABI_VERSION: u32 = 4;
 const INVALID_METADATA: i32 = 5;
 
 /// libsepol-backed binary policy loader.
@@ -169,9 +173,18 @@ impl PolicyLoader for LibsepolLoader {
             &sensitivities,
             &categories,
         )?;
+        let seinfo = native.seinfo_data(
+            path,
+            &metadata,
+            &type_symbols,
+            &object_classes,
+            &roles,
+            &sensitivities,
+            &categories,
+        )?;
 
         // `native` is dropped here, before the owned policy can escape.
-        Ok(Policy::from_sesearch_parts(
+        Ok(Policy::from_all_parts(
             path.to_path_buf(),
             metadata,
             type_symbols,
@@ -184,6 +197,7 @@ impl PolicyLoader for LibsepolLoader {
             sensitivities,
             categories,
             mls_rules,
+            seinfo,
         ))
     }
 }
@@ -285,30 +299,46 @@ impl NativePolicy {
             } else {
                 copy_string(path, view.name, "type symbol")?
             };
-            raw_types.push((view.kind, name));
+            raw_types.push((view.kind, name, view.permissive != 0, view.bound));
         }
 
         let mut symbols = Vec::with_capacity(raw_types.len());
-        for (index, (kind, name)) in raw_types.iter().enumerate() {
+        for (index, (kind, name, permissive, bound)) in raw_types.iter().enumerate() {
             let raw = u32::try_from(index)
                 .map_err(|_| LoadError::new(path, INVALID_METADATA, "too many type symbols"))?;
             match kind {
-                0 => symbols.push(
-                    TypeSymbol::new_type(TypeId::from_raw(raw), name.clone()).with_aliases(
-                        self.aliases(
-                            path,
-                            raw,
-                            ffi::st_policy_type_alias_count,
-                            ffi::st_policy_type_alias_get,
-                            "type alias",
-                        )?,
-                    ),
-                ),
+                0 => {
+                    let bound = if *bound == u32::MAX {
+                        None
+                    } else {
+                        match raw_types.get(*bound as usize) {
+                            Some((0, _, _, _)) => Some(TypeId::from_raw(*bound)),
+                            _ => {
+                                return Err(LoadError::new(
+                                    path,
+                                    INVALID_METADATA,
+                                    format!("type {name} has invalid bound index {bound}"),
+                                ));
+                            }
+                        }
+                    };
+                    symbols.push(
+                        TypeSymbol::new_type(TypeId::from_raw(raw), name.clone())
+                            .with_aliases(self.aliases(
+                                path,
+                                raw,
+                                ffi::st_policy_type_alias_count,
+                                ffi::st_policy_type_alias_get,
+                                "type alias",
+                            )?)
+                            .with_seinfo_properties(*permissive, bound),
+                    );
+                }
                 1 => {
                     let members = self.attribute_members(path, raw)?;
                     for member in &members {
                         match raw_types.get(member.as_raw() as usize) {
-                            Some((0, _)) => {}
+                            Some((0, _, _, _)) => {}
                             _ => {
                                 return Err(LoadError::new(
                                     path,
@@ -438,6 +468,11 @@ impl NativePolicy {
             };
             check_status(path, status, &mut error, "could not copy object class")?;
             let name = copy_string(path, view.name, "object class")?;
+            let common = if view.common.data.is_null() {
+                None
+            } else {
+                Some(copy_string(path, view.common, "class common")?)
+            };
 
             let mut permissions = Vec::with_capacity(view.permission_count as usize);
             for permission in 0..view.permission_count {
@@ -460,11 +495,36 @@ impl NativePolicy {
                     copy_string(path, permission_name, "permission")?,
                 ));
             }
-            classes.push(ObjectClass::new(
-                ClassId::from_raw(index),
-                name,
-                permissions,
-            ));
+            let mut local_permissions = Vec::with_capacity(view.local_permission_count as usize);
+            for permission in 0..view.local_permission_count {
+                let mut permission_name = ffi::StStringView::default();
+                let mut error = ffi::StError::default();
+                // SAFETY: the native policy remains alive and outputs are writable.
+                let status = unsafe {
+                    ffi::st_policy_class_local_permission_get(
+                        self.raw.as_ptr(),
+                        index,
+                        permission,
+                        &mut permission_name,
+                        &mut error,
+                    )
+                };
+                check_status(
+                    path,
+                    status,
+                    &mut error,
+                    "could not copy local class permission",
+                )?;
+                local_permissions.push(copy_string(
+                    path,
+                    permission_name,
+                    "local class permission",
+                )?);
+            }
+            classes.push(
+                ObjectClass::new(ClassId::from_raw(index), name, permissions)
+                    .with_declaration(common, local_permissions),
+            );
         }
         Ok(classes)
     }
@@ -689,11 +749,14 @@ impl NativePolicy {
             if members.is_empty() {
                 members.push(RoleId::from_raw(index));
             }
-            roles.push(Role::new(
-                RoleId::from_raw(index),
-                copy_string(path, view.name, "role")?,
-                members,
-            ));
+            roles.push(
+                Role::new(
+                    RoleId::from_raw(index),
+                    copy_string(path, view.name, "role")?,
+                    members,
+                )
+                .with_authorized_types(self.role_types(path, index)?),
+            );
         }
         Ok(roles)
     }
@@ -741,6 +804,51 @@ impl NativePolicy {
             ));
         }
         Ok(raw.into_iter().map(RoleId::from_raw).collect())
+    }
+
+    fn role_types(&self, path: &Path, role: u32) -> Result<Vec<TypeId>, LoadError> {
+        let mut count = 0_usize;
+        let mut error = ffi::StError::default();
+        // SAFETY: a null buffer requests the required count.
+        let status = unsafe {
+            ffi::st_policy_role_types_get(
+                self.raw.as_ptr(),
+                role,
+                std::ptr::null_mut(),
+                0,
+                &mut count,
+                &mut error,
+            )
+        };
+        check_status(path, status, &mut error, "could not count role types")?;
+        let mut raw = vec![0_u32; count];
+        let mut copied = count;
+        let output = if raw.is_empty() {
+            std::ptr::null_mut()
+        } else {
+            raw.as_mut_ptr()
+        };
+        let mut error = ffi::StError::default();
+        // SAFETY: output has the declared capacity and outputs are writable.
+        let status = unsafe {
+            ffi::st_policy_role_types_get(
+                self.raw.as_ptr(),
+                role,
+                output,
+                raw.len(),
+                &mut copied,
+                &mut error,
+            )
+        };
+        check_status(path, status, &mut error, "could not copy role types")?;
+        if copied != raw.len() {
+            return Err(LoadError::new(
+                path,
+                INVALID_METADATA,
+                format!("role {role} type count changed while copying"),
+            ));
+        }
+        Ok(raw.into_iter().map(TypeId::from_raw).collect())
     }
 
     fn filename_rules(
@@ -1002,6 +1110,906 @@ impl NativePolicy {
             ));
         }
         Ok(raw.into_iter().map(CategoryId::from_raw).collect())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn seinfo_data(
+        &self,
+        path: &Path,
+        metadata: &PolicyMetadata,
+        types: &[TypeSymbol],
+        classes: &[ObjectClass],
+        roles: &[Role],
+        sensitivities: &[Sensitivity],
+        categories: &[Category],
+    ) -> Result<SeinfoData, LoadError> {
+        let commons = self.commons(path)?;
+        let users = self.users(path, metadata, roles, sensitivities, categories)?;
+        let constraints = self.constraints(path, types, classes, roles, &users)?;
+        let defaults = self.defaults(path, classes)?;
+        let policy_capabilities = self.policy_capabilities(path)?;
+        let labeling_rules = self.labeling_rules(
+            path,
+            metadata,
+            types,
+            classes,
+            roles,
+            &users,
+            sensitivities,
+            categories,
+        )?;
+        Ok(SeinfoData::new(
+            commons,
+            users,
+            constraints,
+            defaults,
+            policy_capabilities,
+            labeling_rules,
+        ))
+    }
+
+    fn commons(&self, path: &Path) -> Result<Vec<CommonPermissionSet>, LoadError> {
+        // SAFETY: the native policy handle is valid for this method call.
+        let count = unsafe { ffi::st_policy_common_count(self.raw.as_ptr()) };
+        let mut commons = Vec::with_capacity(count as usize);
+        for index in 0..count {
+            let mut view = ffi::StCommonView::default();
+            let mut error = ffi::StError::default();
+            // SAFETY: the policy remains alive and outputs are writable.
+            let status = unsafe {
+                ffi::st_policy_common_get(self.raw.as_ptr(), index, &mut view, &mut error)
+            };
+            check_status(
+                path,
+                status,
+                &mut error,
+                "could not copy common permission set",
+            )?;
+            let mut permissions = Vec::with_capacity(view.permission_count as usize);
+            for permission in 0..view.permission_count {
+                let mut name = ffi::StStringView::default();
+                let mut error = ffi::StError::default();
+                // SAFETY: indices are bounded by the view and outputs are writable.
+                let status = unsafe {
+                    ffi::st_policy_common_permission_get(
+                        self.raw.as_ptr(),
+                        index,
+                        permission,
+                        &mut name,
+                        &mut error,
+                    )
+                };
+                check_status(path, status, &mut error, "could not copy common permission")?;
+                permissions.push(copy_string(path, name, "common permission")?);
+            }
+            commons.push(CommonPermissionSet::new(
+                copy_string(path, view.name, "common permission set")?,
+                permissions,
+            ));
+        }
+        Ok(commons)
+    }
+
+    fn users(
+        &self,
+        path: &Path,
+        metadata: &PolicyMetadata,
+        roles: &[Role],
+        sensitivities: &[Sensitivity],
+        categories: &[Category],
+    ) -> Result<Vec<User>, LoadError> {
+        // SAFETY: the native policy handle is valid for this method call.
+        let count = unsafe { ffi::st_policy_user_count(self.raw.as_ptr()) };
+        let mut users = Vec::with_capacity(count as usize);
+        for index in 0..count {
+            let mut view = ffi::StUserView::default();
+            let mut error = ffi::StError::default();
+            // SAFETY: the policy remains alive and outputs are writable.
+            let status =
+                unsafe { ffi::st_policy_user_get(self.raw.as_ptr(), index, &mut view, &mut error) };
+            check_status(path, status, &mut error, "could not copy SELinux user")?;
+            let mut user_roles = self.user_roles(path, index)?;
+            for role in &user_roles {
+                if roles.get(role.as_raw() as usize).is_none() {
+                    return Err(LoadError::new(
+                        path,
+                        INVALID_METADATA,
+                        format!("user {index} has invalid role index {}", role.as_raw()),
+                    ));
+                }
+            }
+            user_roles.retain(|role| roles[role.as_raw() as usize].name() != "object_r");
+
+            let (default_level, range) = if metadata.mls {
+                let default_level = self.user_level(
+                    path,
+                    index,
+                    view.default_sensitivity,
+                    0,
+                    sensitivities,
+                    categories,
+                )?;
+                let low = self.user_level(
+                    path,
+                    index,
+                    view.low_sensitivity,
+                    1,
+                    sensitivities,
+                    categories,
+                )?;
+                let high = self.user_level(
+                    path,
+                    index,
+                    view.high_sensitivity,
+                    2,
+                    sensitivities,
+                    categories,
+                )?;
+                (Some(default_level), Some(MlsRange::new(low, high)))
+            } else {
+                (None, None)
+            };
+            users.push(User::new(
+                UserId::from_raw(index),
+                copy_string(path, view.name, "SELinux user")?,
+                user_roles,
+                default_level,
+                range,
+            ));
+        }
+        Ok(users)
+    }
+
+    fn user_roles(&self, path: &Path, user: u32) -> Result<Vec<RoleId>, LoadError> {
+        let mut count = 0_usize;
+        let mut error = ffi::StError::default();
+        // SAFETY: a null buffer requests the required count.
+        let status = unsafe {
+            ffi::st_policy_user_roles_get(
+                self.raw.as_ptr(),
+                user,
+                std::ptr::null_mut(),
+                0,
+                &mut count,
+                &mut error,
+            )
+        };
+        check_status(path, status, &mut error, "could not count user roles")?;
+        let mut raw = vec![0_u32; count];
+        let mut copied = count;
+        let mut error = ffi::StError::default();
+        // SAFETY: the output buffer has the declared capacity.
+        let status = unsafe {
+            ffi::st_policy_user_roles_get(
+                self.raw.as_ptr(),
+                user,
+                raw.as_mut_ptr(),
+                raw.len(),
+                &mut copied,
+                &mut error,
+            )
+        };
+        check_status(path, status, &mut error, "could not copy user roles")?;
+        if copied != raw.len() {
+            return Err(LoadError::new(
+                path,
+                INVALID_METADATA,
+                "user role count changed",
+            ));
+        }
+        Ok(raw.into_iter().map(RoleId::from_raw).collect())
+    }
+
+    fn user_level(
+        &self,
+        path: &Path,
+        user: u32,
+        sensitivity: u32,
+        level: u32,
+        sensitivities: &[Sensitivity],
+        categories: &[Category],
+    ) -> Result<MlsLevel, LoadError> {
+        if sensitivities.get(sensitivity as usize).is_none() {
+            return Err(LoadError::new(
+                path,
+                INVALID_METADATA,
+                format!("user {user} has invalid sensitivity index {sensitivity}"),
+            ));
+        }
+        Ok(MlsLevel::new(
+            SensitivityId::from_raw(sensitivity),
+            self.user_categories(path, user, level, categories.len())?,
+        ))
+    }
+
+    fn user_categories(
+        &self,
+        path: &Path,
+        user: u32,
+        level: u32,
+        category_count: usize,
+    ) -> Result<Vec<CategoryId>, LoadError> {
+        let mut count = 0_usize;
+        let mut error = ffi::StError::default();
+        // SAFETY: a null buffer requests the required count.
+        let status = unsafe {
+            ffi::st_policy_user_categories_get(
+                self.raw.as_ptr(),
+                user,
+                level,
+                std::ptr::null_mut(),
+                0,
+                &mut count,
+                &mut error,
+            )
+        };
+        check_status(path, status, &mut error, "could not count user categories")?;
+        let mut raw = vec![0_u32; count];
+        let mut copied = count;
+        let mut error = ffi::StError::default();
+        // SAFETY: the output buffer has the declared capacity.
+        let status = unsafe {
+            ffi::st_policy_user_categories_get(
+                self.raw.as_ptr(),
+                user,
+                level,
+                raw.as_mut_ptr(),
+                raw.len(),
+                &mut copied,
+                &mut error,
+            )
+        };
+        check_status(path, status, &mut error, "could not copy user categories")?;
+        if copied != raw.len() || raw.iter().any(|value| *value as usize >= category_count) {
+            return Err(LoadError::new(
+                path,
+                INVALID_METADATA,
+                "user has invalid categories",
+            ));
+        }
+        Ok(raw.into_iter().map(CategoryId::from_raw).collect())
+    }
+
+    fn defaults(
+        &self,
+        path: &Path,
+        classes: &[ObjectClass],
+    ) -> Result<Vec<DefaultRule>, LoadError> {
+        let mut rules = Vec::new();
+        for (index, target_class) in classes.iter().enumerate() {
+            let index = u32::try_from(index)
+                .map_err(|_| LoadError::new(path, INVALID_METADATA, "too many classes"))?;
+            let mut view = ffi::StClassView::default();
+            let mut error = ffi::StError::default();
+            // SAFETY: class index is from the owned copy of this policy.
+            let status = unsafe {
+                ffi::st_policy_class_get(self.raw.as_ptr(), index, &mut view, &mut error)
+            };
+            check_status(path, status, &mut error, "could not copy class defaults")?;
+            for (kind, raw) in [
+                (DefaultRuleKind::User, view.default_user),
+                (DefaultRuleKind::Role, view.default_role),
+                (DefaultRuleKind::Type, view.default_type),
+            ] {
+                let value = match raw {
+                    0 => continue,
+                    1 => DefaultValue::Source,
+                    2 => DefaultValue::Target,
+                    value => {
+                        return Err(LoadError::new(
+                            path,
+                            INVALID_METADATA,
+                            format!("class {index} has invalid default value {value}"),
+                        ));
+                    }
+                };
+                rules.push(DefaultRule::new(kind, target_class.id(), value, None));
+            }
+            if view.default_range != 0 {
+                let (value, part) = match view.default_range {
+                    1 => (DefaultValue::Source, Some(DefaultRangePart::Low)),
+                    2 => (DefaultValue::Source, Some(DefaultRangePart::High)),
+                    3 => (DefaultValue::Source, Some(DefaultRangePart::LowHigh)),
+                    4 => (DefaultValue::Target, Some(DefaultRangePart::Low)),
+                    5 => (DefaultValue::Target, Some(DefaultRangePart::High)),
+                    6 => (DefaultValue::Target, Some(DefaultRangePart::LowHigh)),
+                    7 => (DefaultValue::GlbLub, None),
+                    raw => {
+                        return Err(LoadError::new(
+                            path,
+                            INVALID_METADATA,
+                            format!("class {index} has invalid default range {raw}"),
+                        ));
+                    }
+                };
+                rules.push(DefaultRule::new(
+                    DefaultRuleKind::Range,
+                    target_class.id(),
+                    value,
+                    part,
+                ));
+            }
+        }
+        Ok(rules)
+    }
+
+    fn constraints(
+        &self,
+        path: &Path,
+        types: &[TypeSymbol],
+        classes: &[ObjectClass],
+        roles: &[Role],
+        users: &[User],
+    ) -> Result<Vec<ConstraintRule>, LoadError> {
+        // SAFETY: the native policy handle is valid for this method call.
+        let count = unsafe { ffi::st_policy_constraint_count(self.raw.as_ptr()) };
+        let mut rules = Vec::with_capacity(count as usize);
+        for index in 0..count {
+            let mut view = ffi::StConstraintView::default();
+            let mut error = ffi::StError::default();
+            // SAFETY: the policy remains alive and outputs are writable.
+            let status = unsafe {
+                ffi::st_policy_constraint_get(self.raw.as_ptr(), index, &mut view, &mut error)
+            };
+            check_status(path, status, &mut error, "could not copy constraint")?;
+            let target_class = classes.get(view.target_class as usize).ok_or_else(|| {
+                LoadError::new(path, INVALID_METADATA, "constraint has invalid class")
+            })?;
+            let permissions = target_class
+                .permissions()
+                .iter()
+                .filter(|permission| view.permissions & (1_u32 << permission.id().as_raw()) != 0)
+                .map(Permission::id)
+                .collect();
+            let mut expression = Vec::new();
+            for expression_index in 0..view.expression_count {
+                let mut native = ffi::StConstraintExpressionView::default();
+                let mut error = ffi::StError::default();
+                // SAFETY: expression index is bounded by the native view.
+                let status = unsafe {
+                    ffi::st_policy_constraint_expression_get(
+                        self.raw.as_ptr(),
+                        index,
+                        expression_index,
+                        &mut native,
+                        &mut error,
+                    )
+                };
+                check_status(
+                    path,
+                    status,
+                    &mut error,
+                    "could not copy constraint expression",
+                )?;
+                match native.expression_type {
+                    1 => expression
+                        .push(ConstraintExpressionToken::Operator(ConstraintOperator::Not)),
+                    2 => expression
+                        .push(ConstraintExpressionToken::Operator(ConstraintOperator::And)),
+                    3 => {
+                        expression.push(ConstraintExpressionToken::Operator(ConstraintOperator::Or))
+                    }
+                    4 | 5 => {
+                        let (left, right) = constraint_operands(path, native.attribute)?;
+                        expression.push(ConstraintExpressionToken::Operand(left.to_owned()));
+                        if native.expression_type == 4 {
+                            let right = right.ok_or_else(|| {
+                                LoadError::new(
+                                    path,
+                                    INVALID_METADATA,
+                                    "attribute constraint has no right operand",
+                                )
+                            })?;
+                            expression.push(ConstraintExpressionToken::Operand(right.to_owned()));
+                        } else {
+                            expression.push(ConstraintExpressionToken::Names(
+                                self.constraint_names(
+                                    path,
+                                    index,
+                                    expression_index,
+                                    native.names_kind,
+                                    types,
+                                    roles,
+                                    users,
+                                )?,
+                            ));
+                        }
+                        expression.push(ConstraintExpressionToken::Operator(constraint_operator(
+                            path,
+                            native.operator,
+                        )?));
+                    }
+                    value => {
+                        return Err(LoadError::new(
+                            path,
+                            INVALID_METADATA,
+                            format!("constraint expression has unknown type {value}"),
+                        ));
+                    }
+                }
+            }
+            let kind = match (view.validate_transition != 0, view.mls != 0) {
+                (false, false) => ConstraintKind::Constrain,
+                (false, true) => ConstraintKind::MlsConstrain,
+                (true, false) => ConstraintKind::ValidateTransition,
+                (true, true) => ConstraintKind::MlsValidateTransition,
+            };
+            rules.push(ConstraintRule::new(
+                kind,
+                target_class.id(),
+                permissions,
+                expression,
+            ));
+        }
+        Ok(rules)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn constraint_names(
+        &self,
+        path: &Path,
+        constraint: u32,
+        expression: u32,
+        kind: u32,
+        types: &[TypeSymbol],
+        roles: &[Role],
+        users: &[User],
+    ) -> Result<Vec<String>, LoadError> {
+        let mut count = 0_usize;
+        let mut error = ffi::StError::default();
+        // SAFETY: a null buffer requests the required count.
+        let status = unsafe {
+            ffi::st_policy_constraint_expression_names_get(
+                self.raw.as_ptr(),
+                constraint,
+                expression,
+                std::ptr::null_mut(),
+                0,
+                &mut count,
+                &mut error,
+            )
+        };
+        check_status(path, status, &mut error, "could not count constraint names")?;
+        let mut raw = vec![0_u32; count];
+        let mut copied = count;
+        let mut error = ffi::StError::default();
+        // SAFETY: the output buffer has the declared capacity.
+        let status = unsafe {
+            ffi::st_policy_constraint_expression_names_get(
+                self.raw.as_ptr(),
+                constraint,
+                expression,
+                raw.as_mut_ptr(),
+                raw.len(),
+                &mut copied,
+                &mut error,
+            )
+        };
+        check_status(path, status, &mut error, "could not copy constraint names")?;
+        if copied != raw.len() {
+            return Err(LoadError::new(
+                path,
+                INVALID_METADATA,
+                "constraint name count changed",
+            ));
+        }
+        raw.into_iter()
+            .map(|value| match kind {
+                1 => users.get(value as usize).map(User::name),
+                2 => roles.get(value as usize).map(Role::name),
+                3 => types.get(value as usize).map(TypeSymbol::name),
+                _ => None,
+            })
+            .map(|name| {
+                name.map(str::to_owned).ok_or_else(|| {
+                    LoadError::new(path, INVALID_METADATA, "constraint has invalid name index")
+                })
+            })
+            .collect()
+    }
+
+    fn policy_capabilities(&self, path: &Path) -> Result<Vec<String>, LoadError> {
+        // SAFETY: the native policy handle is valid for this method call.
+        let count = unsafe { ffi::st_policy_capability_count(self.raw.as_ptr()) };
+        let mut capabilities = Vec::with_capacity(count as usize);
+        for index in 0..count {
+            let mut name = ffi::StStringView::default();
+            let mut error = ffi::StError::default();
+            // SAFETY: index is bounded by the native count and outputs are writable.
+            let status = unsafe {
+                ffi::st_policy_capability_get(self.raw.as_ptr(), index, &mut name, &mut error)
+            };
+            check_status(path, status, &mut error, "could not copy policy capability")?;
+            capabilities.push(copy_string(path, name, "policy capability")?);
+        }
+        Ok(capabilities)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn labeling_rules(
+        &self,
+        path: &Path,
+        metadata: &PolicyMetadata,
+        types: &[TypeSymbol],
+        classes: &[ObjectClass],
+        roles: &[Role],
+        users: &[User],
+        sensitivities: &[Sensitivity],
+        categories: &[Category],
+    ) -> Result<Vec<LabelingRule>, LoadError> {
+        let mut rules = Vec::new();
+        for kind in 0..=12_u32 {
+            // SAFETY: the native policy handle is valid for this method call.
+            let count = unsafe { ffi::st_policy_labeling_count(self.raw.as_ptr(), kind) };
+            for index in 0..count {
+                let mut view = ffi::StLabelingView::default();
+                let mut error = ffi::StError::default();
+                // SAFETY: index is bounded by the native count and outputs are writable.
+                let status = unsafe {
+                    ffi::st_policy_labeling_get(
+                        self.raw.as_ptr(),
+                        kind,
+                        index,
+                        &mut view,
+                        &mut error,
+                    )
+                };
+                check_status(path, status, &mut error, "could not copy labeling rule")?;
+                let context = self.security_context(
+                    path,
+                    metadata,
+                    kind,
+                    index,
+                    0,
+                    &view.contexts[0],
+                    types,
+                    roles,
+                    users,
+                    sensitivities,
+                    categories,
+                )?;
+                let name = |description| copy_string(path, view.name, description);
+                let rule = match kind {
+                    0 => LabelingRule::InitialSid {
+                        name: name("initial SID")?,
+                        context,
+                    },
+                    1 => LabelingRule::FsUse {
+                        kind: match view.subtype {
+                            1 => FsUseKind::Xattr,
+                            2 => FsUseKind::Transition,
+                            3 => FsUseKind::Task,
+                            value => {
+                                return Err(LoadError::new(
+                                    path,
+                                    INVALID_METADATA,
+                                    format!("fs_use rule has unknown behavior {value}"),
+                                ));
+                            }
+                        },
+                        filesystem: name("filesystem")?,
+                        context,
+                    },
+                    2 => LabelingRule::Genfscon {
+                        filesystem: name("filesystem")?,
+                        path: copy_string(path, view.secondary, "genfs path")?,
+                        target_class: if view.subtype == u32::MAX {
+                            None
+                        } else {
+                            Some(
+                                classes
+                                    .get(view.subtype as usize)
+                                    .ok_or_else(|| {
+                                        LoadError::new(
+                                            path,
+                                            INVALID_METADATA,
+                                            "genfscon has invalid class",
+                                        )
+                                    })?
+                                    .id(),
+                            )
+                        },
+                        context,
+                    },
+                    3 => LabelingRule::Portcon {
+                        protocol: match view.subtype {
+                            6 => PortProtocol::Tcp,
+                            17 => PortProtocol::Udp,
+                            33 => PortProtocol::Dccp,
+                            132 => PortProtocol::Sctp,
+                            value => {
+                                return Err(LoadError::new(
+                                    path,
+                                    INVALID_METADATA,
+                                    format!("portcon has unknown protocol {value}"),
+                                ));
+                            }
+                        },
+                        low: u16::try_from(view.low).map_err(|_| {
+                            LoadError::new(path, INVALID_METADATA, "portcon low port is too large")
+                        })?,
+                        high: u16::try_from(view.high).map_err(|_| {
+                            LoadError::new(path, INVALID_METADATA, "portcon high port is too large")
+                        })?,
+                        context,
+                    },
+                    4 => LabelingRule::Netifcon {
+                        interface: name("network interface")?,
+                        interface_context: context,
+                        packet_context: self.security_context(
+                            path,
+                            metadata,
+                            kind,
+                            index,
+                            1,
+                            &view.contexts[1],
+                            types,
+                            roles,
+                            users,
+                            sensitivities,
+                            categories,
+                        )?,
+                    },
+                    5 => LabelingRule::Nodecon {
+                        address: labeling_address(path, view.subtype, view.address)?,
+                        mask: labeling_address(path, view.subtype, view.mask)?,
+                        context,
+                    },
+                    6 => LabelingRule::Ibpkeycon {
+                        subnet_prefix: IpAddr::V6(Ipv6Addr::from(view.address)),
+                        low: u16::try_from(view.low).map_err(|_| {
+                            LoadError::new(path, INVALID_METADATA, "ibpkeycon low key is too large")
+                        })?,
+                        high: u16::try_from(view.high).map_err(|_| {
+                            LoadError::new(
+                                path,
+                                INVALID_METADATA,
+                                "ibpkeycon high key is too large",
+                            )
+                        })?,
+                        context,
+                    },
+                    7 => LabelingRule::Ibendportcon {
+                        device: name("InfiniBand device")?,
+                        port: u8::try_from(view.low).map_err(|_| {
+                            LoadError::new(path, INVALID_METADATA, "ibendportcon port is too large")
+                        })?,
+                        context,
+                    },
+                    8 => LabelingRule::Devicetreecon {
+                        path: name("device tree path")?,
+                        context,
+                    },
+                    9 => LabelingRule::Iomemcon {
+                        low: view.low,
+                        high: view.high,
+                        context,
+                    },
+                    10 => LabelingRule::Ioportcon {
+                        low: u32::try_from(view.low).map_err(|_| {
+                            LoadError::new(
+                                path,
+                                INVALID_METADATA,
+                                "ioportcon low port is too large",
+                            )
+                        })?,
+                        high: u32::try_from(view.high).map_err(|_| {
+                            LoadError::new(
+                                path,
+                                INVALID_METADATA,
+                                "ioportcon high port is too large",
+                            )
+                        })?,
+                        context,
+                    },
+                    11 => LabelingRule::Pcidevicecon {
+                        device: u32::try_from(view.low).map_err(|_| {
+                            LoadError::new(path, INVALID_METADATA, "PCI device value is too large")
+                        })?,
+                        context,
+                    },
+                    12 => LabelingRule::Pirqcon {
+                        irq: u16::try_from(view.low).map_err(|_| {
+                            LoadError::new(path, INVALID_METADATA, "PIRQ value is too large")
+                        })?,
+                        context,
+                    },
+                    _ => unreachable!("bounded labeling kind"),
+                };
+                rules.push(rule);
+            }
+        }
+        Ok(rules)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn security_context(
+        &self,
+        path: &Path,
+        metadata: &PolicyMetadata,
+        kind: u32,
+        index: u32,
+        context_index: u32,
+        view: &ffi::StContextView,
+        types: &[TypeSymbol],
+        roles: &[Role],
+        users: &[User],
+        sensitivities: &[Sensitivity],
+        categories: &[Category],
+    ) -> Result<SecurityContext, LoadError> {
+        if users.get(view.user as usize).is_none() || roles.get(view.role as usize).is_none() {
+            return Err(LoadError::new(
+                path,
+                INVALID_METADATA,
+                "security context has invalid user or role",
+            ));
+        }
+        let type_id = concrete_type_id(path, types, view.type_id, "security context")?;
+        let range = if metadata.mls {
+            for sensitivity in [view.low_sensitivity, view.high_sensitivity] {
+                if sensitivities.get(sensitivity as usize).is_none() {
+                    return Err(LoadError::new(
+                        path,
+                        INVALID_METADATA,
+                        "security context has invalid sensitivity",
+                    ));
+                }
+            }
+            Some(MlsRange::new(
+                MlsLevel::new(
+                    SensitivityId::from_raw(view.low_sensitivity),
+                    self.labeling_categories(
+                        path,
+                        kind,
+                        index,
+                        context_index,
+                        false,
+                        categories.len(),
+                    )?,
+                ),
+                MlsLevel::new(
+                    SensitivityId::from_raw(view.high_sensitivity),
+                    self.labeling_categories(
+                        path,
+                        kind,
+                        index,
+                        context_index,
+                        true,
+                        categories.len(),
+                    )?,
+                ),
+            ))
+        } else {
+            None
+        };
+        Ok(SecurityContext::new(
+            UserId::from_raw(view.user),
+            RoleId::from_raw(view.role),
+            type_id,
+            range,
+        ))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn labeling_categories(
+        &self,
+        path: &Path,
+        kind: u32,
+        index: u32,
+        context_index: u32,
+        high: bool,
+        category_count: usize,
+    ) -> Result<Vec<CategoryId>, LoadError> {
+        let mut count = 0_usize;
+        let mut error = ffi::StError::default();
+        // SAFETY: a null buffer requests the required count.
+        let status = unsafe {
+            ffi::st_policy_labeling_context_categories_get(
+                self.raw.as_ptr(),
+                kind,
+                index,
+                context_index,
+                u32::from(high),
+                std::ptr::null_mut(),
+                0,
+                &mut count,
+                &mut error,
+            )
+        };
+        check_status(
+            path,
+            status,
+            &mut error,
+            "could not count labeling categories",
+        )?;
+        let mut raw = vec![0_u32; count];
+        let mut copied = count;
+        let mut error = ffi::StError::default();
+        // SAFETY: the output buffer has the declared capacity.
+        let status = unsafe {
+            ffi::st_policy_labeling_context_categories_get(
+                self.raw.as_ptr(),
+                kind,
+                index,
+                context_index,
+                u32::from(high),
+                raw.as_mut_ptr(),
+                raw.len(),
+                &mut copied,
+                &mut error,
+            )
+        };
+        check_status(
+            path,
+            status,
+            &mut error,
+            "could not copy labeling categories",
+        )?;
+        if copied != raw.len() || raw.iter().any(|value| *value as usize >= category_count) {
+            return Err(LoadError::new(
+                path,
+                INVALID_METADATA,
+                "labeling context has invalid categories",
+            ));
+        }
+        Ok(raw.into_iter().map(CategoryId::from_raw).collect())
+    }
+}
+
+fn constraint_operands(
+    path: &Path,
+    attribute: u32,
+) -> Result<(&'static str, Option<&'static str>), LoadError> {
+    match attribute {
+        1 => Ok(("u1", Some("u2"))),
+        9 => Ok(("u2", None)),
+        17 => Ok(("u3", None)),
+        2 => Ok(("r1", Some("r2"))),
+        10 => Ok(("r2", None)),
+        18 => Ok(("r3", None)),
+        4 => Ok(("t1", Some("t2"))),
+        12 => Ok(("t2", None)),
+        20 => Ok(("t3", None)),
+        32 => Ok(("l1", Some("l2"))),
+        64 => Ok(("l1", Some("h2"))),
+        128 => Ok(("h1", Some("l2"))),
+        256 => Ok(("h1", Some("h2"))),
+        512 => Ok(("l1", Some("h1"))),
+        1024 => Ok(("l2", Some("h2"))),
+        value => Err(LoadError::new(
+            path,
+            INVALID_METADATA,
+            format!("constraint has unknown attribute {value}"),
+        )),
+    }
+}
+
+fn constraint_operator(path: &Path, operator: u32) -> Result<ConstraintOperator, LoadError> {
+    match operator {
+        1 => Ok(ConstraintOperator::Equal),
+        2 => Ok(ConstraintOperator::NotEqual),
+        3 => Ok(ConstraintOperator::Dominates),
+        4 => Ok(ConstraintOperator::DominatedBy),
+        5 => Ok(ConstraintOperator::Incomparable),
+        value => Err(LoadError::new(
+            path,
+            INVALID_METADATA,
+            format!("constraint has unknown operator {value}"),
+        )),
+    }
+}
+
+fn labeling_address(path: &Path, family: u32, bytes: [u8; 16]) -> Result<IpAddr, LoadError> {
+    match family {
+        4 => Ok(IpAddr::V4(Ipv4Addr::new(
+            bytes[0], bytes[1], bytes[2], bytes[3],
+        ))),
+        6 => Ok(IpAddr::V6(Ipv6Addr::from(bytes))),
+        value => Err(LoadError::new(
+            path,
+            INVALID_METADATA,
+            format!("nodecon has unknown address family {value}"),
+        )),
     }
 }
 
@@ -1266,13 +2274,21 @@ mod ffi {
     pub struct StTypeView {
         pub kind: u32,
         pub name: StStringView,
+        pub permissive: u32,
+        pub bound: u32,
     }
 
     #[repr(C)]
     #[derive(Default)]
     pub struct StClassView {
         pub name: StStringView,
+        pub common: StStringView,
         pub permission_count: u32,
+        pub local_permission_count: u32,
+        pub default_user: u32,
+        pub default_role: u32,
+        pub default_type: u32,
+        pub default_range: u32,
     }
 
     #[repr(C)]
@@ -1341,6 +2357,65 @@ mod ffi {
         pub high_sensitivity: u32,
     }
 
+    #[repr(C)]
+    #[derive(Default)]
+    pub struct StCommonView {
+        pub name: StStringView,
+        pub permission_count: u32,
+    }
+
+    #[repr(C)]
+    #[derive(Default)]
+    pub struct StUserView {
+        pub name: StStringView,
+        pub low_sensitivity: u32,
+        pub high_sensitivity: u32,
+        pub default_sensitivity: u32,
+    }
+
+    #[repr(C)]
+    #[derive(Default)]
+    pub struct StConstraintView {
+        pub target_class: u32,
+        pub permissions: u32,
+        pub validate_transition: u32,
+        pub mls: u32,
+        pub expression_count: u32,
+    }
+
+    #[repr(C)]
+    #[derive(Default)]
+    pub struct StConstraintExpressionView {
+        pub expression_type: u32,
+        pub attribute: u32,
+        pub operator: u32,
+        pub names_kind: u32,
+        pub names_count: u32,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy, Default)]
+    pub struct StContextView {
+        pub user: u32,
+        pub role: u32,
+        pub type_id: u32,
+        pub low_sensitivity: u32,
+        pub high_sensitivity: u32,
+    }
+
+    #[repr(C)]
+    #[derive(Default)]
+    pub struct StLabelingView {
+        pub subtype: u32,
+        pub name: StStringView,
+        pub secondary: StStringView,
+        pub low: u64,
+        pub high: u64,
+        pub address: [u8; 16],
+        pub mask: [u8; 16],
+        pub contexts: [StContextView; 2],
+    }
+
     unsafe extern "C" {
         pub fn st_bridge_abi_version() -> u32;
         pub fn st_process_use_default_sigpipe() -> c_int;
@@ -1390,6 +2465,13 @@ mod ffi {
             name: *mut StStringView,
             error: *mut StError,
         ) -> c_int;
+        pub fn st_policy_class_local_permission_get(
+            policy: *const StPolicy,
+            target_class: u32,
+            index: u32,
+            name: *mut StStringView,
+            error: *mut StError,
+        ) -> c_int;
         pub fn st_policy_te_rule_count(policy: *const StPolicy) -> u32;
         pub fn st_policy_te_rule_get(
             policy: *const StPolicy,
@@ -1424,6 +2506,14 @@ mod ffi {
             policy: *const StPolicy,
             role: u32,
             members: *mut u32,
+            capacity: usize,
+            count: *mut usize,
+            error: *mut StError,
+        ) -> c_int;
+        pub fn st_policy_role_types_get(
+            policy: *const StPolicy,
+            role: u32,
+            types: *mut u32,
             capacity: usize,
             count: *mut usize,
             error: *mut StError,
@@ -1482,6 +2572,93 @@ mod ffi {
         pub fn st_policy_mls_rule_categories_get(
             policy: *const StPolicy,
             index: u32,
+            high: u32,
+            categories: *mut u32,
+            capacity: usize,
+            count: *mut usize,
+            error: *mut StError,
+        ) -> c_int;
+        pub fn st_policy_common_count(policy: *const StPolicy) -> u32;
+        pub fn st_policy_common_get(
+            policy: *const StPolicy,
+            index: u32,
+            common: *mut StCommonView,
+            error: *mut StError,
+        ) -> c_int;
+        pub fn st_policy_common_permission_get(
+            policy: *const StPolicy,
+            common: u32,
+            index: u32,
+            name: *mut StStringView,
+            error: *mut StError,
+        ) -> c_int;
+        pub fn st_policy_user_count(policy: *const StPolicy) -> u32;
+        pub fn st_policy_user_get(
+            policy: *const StPolicy,
+            index: u32,
+            user: *mut StUserView,
+            error: *mut StError,
+        ) -> c_int;
+        pub fn st_policy_user_roles_get(
+            policy: *const StPolicy,
+            user: u32,
+            roles: *mut u32,
+            capacity: usize,
+            count: *mut usize,
+            error: *mut StError,
+        ) -> c_int;
+        pub fn st_policy_user_categories_get(
+            policy: *const StPolicy,
+            user: u32,
+            level: u32,
+            categories: *mut u32,
+            capacity: usize,
+            count: *mut usize,
+            error: *mut StError,
+        ) -> c_int;
+        pub fn st_policy_constraint_count(policy: *const StPolicy) -> u32;
+        pub fn st_policy_constraint_get(
+            policy: *const StPolicy,
+            index: u32,
+            constraint: *mut StConstraintView,
+            error: *mut StError,
+        ) -> c_int;
+        pub fn st_policy_constraint_expression_get(
+            policy: *const StPolicy,
+            constraint: u32,
+            index: u32,
+            expression: *mut StConstraintExpressionView,
+            error: *mut StError,
+        ) -> c_int;
+        pub fn st_policy_constraint_expression_names_get(
+            policy: *const StPolicy,
+            constraint: u32,
+            expression: u32,
+            names: *mut u32,
+            capacity: usize,
+            count: *mut usize,
+            error: *mut StError,
+        ) -> c_int;
+        pub fn st_policy_capability_count(policy: *const StPolicy) -> u32;
+        pub fn st_policy_capability_get(
+            policy: *const StPolicy,
+            index: u32,
+            name: *mut StStringView,
+            error: *mut StError,
+        ) -> c_int;
+        pub fn st_policy_labeling_count(policy: *const StPolicy, kind: u32) -> u32;
+        pub fn st_policy_labeling_get(
+            policy: *const StPolicy,
+            kind: u32,
+            index: u32,
+            labeling: *mut StLabelingView,
+            error: *mut StError,
+        ) -> c_int;
+        pub fn st_policy_labeling_context_categories_get(
+            policy: *const StPolicy,
+            kind: u32,
+            index: u32,
+            context_index: u32,
             high: u32,
             categories: *mut u32,
             capacity: usize,

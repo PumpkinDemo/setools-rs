@@ -10,7 +10,7 @@
 extern "C" {
 #endif
 
-#define ST_BRIDGE_ABI_VERSION 3U
+#define ST_BRIDGE_ABI_VERSION 4U
 
 typedef struct st_policy st_policy;
 
@@ -56,11 +56,19 @@ typedef enum st_type_kind {
 typedef struct st_type_view {
     uint32_t kind;
     st_string_view name;
+    uint32_t permissive;
+    uint32_t bound;
 } st_type_view;
 
 typedef struct st_class_view {
     st_string_view name;
+    st_string_view common;
     uint32_t permission_count;
+    uint32_t local_permission_count;
+    uint32_t default_user;
+    uint32_t default_role;
+    uint32_t default_type;
+    uint32_t default_range;
 } st_class_view;
 
 typedef struct st_te_rule_view {
@@ -115,6 +123,69 @@ typedef struct st_mls_rule_view {
     uint32_t high_sensitivity;
 } st_mls_rule_view;
 
+typedef struct st_common_view {
+    st_string_view name;
+    uint32_t permission_count;
+} st_common_view;
+
+typedef struct st_user_view {
+    st_string_view name;
+    uint32_t low_sensitivity;
+    uint32_t high_sensitivity;
+    uint32_t default_sensitivity;
+} st_user_view;
+
+typedef struct st_constraint_view {
+    uint32_t target_class;
+    uint32_t permissions;
+    uint32_t validate_transition;
+    uint32_t mls;
+    uint32_t expression_count;
+} st_constraint_view;
+
+typedef struct st_constraint_expression_view {
+    uint32_t expression_type;
+    uint32_t attribute;
+    uint32_t operator;
+    uint32_t names_kind;
+    uint32_t names_count;
+} st_constraint_expression_view;
+
+typedef struct st_context_view {
+    uint32_t user;
+    uint32_t role;
+    uint32_t type;
+    uint32_t low_sensitivity;
+    uint32_t high_sensitivity;
+} st_context_view;
+
+typedef enum st_labeling_kind {
+    ST_LABEL_INITIAL_SID = 0,
+    ST_LABEL_FS_USE = 1,
+    ST_LABEL_GENFSCON = 2,
+    ST_LABEL_PORTCON = 3,
+    ST_LABEL_NETIFCON = 4,
+    ST_LABEL_NODECON = 5,
+    ST_LABEL_IBPKEYCON = 6,
+    ST_LABEL_IBENDPORTCON = 7,
+    ST_LABEL_DEVICETREECON = 8,
+    ST_LABEL_IOMEMCON = 9,
+    ST_LABEL_IOPORTCON = 10,
+    ST_LABEL_PCIDEVICECON = 11,
+    ST_LABEL_PIRQCON = 12
+} st_labeling_kind;
+
+typedef struct st_labeling_view {
+    uint32_t subtype;
+    st_string_view name;
+    st_string_view secondary;
+    uint64_t low;
+    uint64_t high;
+    uint8_t address[16];
+    uint8_t mask[16];
+    st_context_view contexts[2];
+} st_labeling_view;
+
 uint32_t st_bridge_abi_version(void);
 
 int32_t st_process_use_default_sigpipe(void);
@@ -160,6 +231,12 @@ int32_t st_policy_permission_get(const st_policy *policy,
                                  st_string_view *name,
                                  st_error *error);
 
+int32_t st_policy_class_local_permission_get(const st_policy *policy,
+                                             uint32_t target_class,
+                                             uint32_t index,
+                                             st_string_view *name,
+                                             st_error *error);
+
 uint32_t st_policy_te_rule_count(const st_policy *policy);
 
 int32_t st_policy_te_rule_get(const st_policy *policy, uint32_t index,
@@ -189,6 +266,10 @@ int32_t st_policy_role_get(const st_policy *policy, uint32_t index,
 int32_t st_policy_role_members_get(const st_policy *policy, uint32_t role,
                                    uint32_t *members, size_t capacity,
                                    size_t *count, st_error *error);
+
+int32_t st_policy_role_types_get(const st_policy *policy, uint32_t role,
+                                 uint32_t *types, size_t capacity,
+                                 size_t *count, st_error *error);
 
 uint32_t st_policy_rbac_rule_count(const st_policy *policy);
 
@@ -235,6 +316,60 @@ int32_t st_policy_mls_rule_categories_get(const st_policy *policy,
                                           uint32_t *categories,
                                           size_t capacity, size_t *count,
                                           st_error *error);
+
+uint32_t st_policy_common_count(const st_policy *policy);
+
+int32_t st_policy_common_get(const st_policy *policy, uint32_t index,
+                             st_common_view *common, st_error *error);
+
+int32_t st_policy_common_permission_get(const st_policy *policy,
+                                        uint32_t common, uint32_t index,
+                                        st_string_view *name,
+                                        st_error *error);
+
+uint32_t st_policy_user_count(const st_policy *policy);
+
+int32_t st_policy_user_get(const st_policy *policy, uint32_t index,
+                           st_user_view *user, st_error *error);
+
+int32_t st_policy_user_roles_get(const st_policy *policy, uint32_t user,
+                                 uint32_t *roles, size_t capacity,
+                                 size_t *count, st_error *error);
+
+int32_t st_policy_user_categories_get(const st_policy *policy, uint32_t user,
+                                      uint32_t level, uint32_t *categories,
+                                      size_t capacity, size_t *count,
+                                      st_error *error);
+
+uint32_t st_policy_constraint_count(const st_policy *policy);
+
+int32_t st_policy_constraint_get(const st_policy *policy, uint32_t index,
+                                 st_constraint_view *constraint,
+                                 st_error *error);
+
+int32_t st_policy_constraint_expression_get(
+    const st_policy *policy, uint32_t constraint, uint32_t index,
+    st_constraint_expression_view *expression, st_error *error);
+
+int32_t st_policy_constraint_expression_names_get(
+    const st_policy *policy, uint32_t constraint, uint32_t expression,
+    uint32_t *names, size_t capacity, size_t *count, st_error *error);
+
+uint32_t st_policy_capability_count(const st_policy *policy);
+
+int32_t st_policy_capability_get(const st_policy *policy, uint32_t index,
+                                 st_string_view *name, st_error *error);
+
+uint32_t st_policy_labeling_count(const st_policy *policy, uint32_t kind);
+
+int32_t st_policy_labeling_get(const st_policy *policy, uint32_t kind,
+                               uint32_t index, st_labeling_view *labeling,
+                               st_error *error);
+
+int32_t st_policy_labeling_context_categories_get(
+    const st_policy *policy, uint32_t kind, uint32_t index,
+    uint32_t context_index, uint32_t high, uint32_t *categories,
+    size_t capacity, size_t *count, st_error *error);
 
 void st_error_clear(st_error *error);
 

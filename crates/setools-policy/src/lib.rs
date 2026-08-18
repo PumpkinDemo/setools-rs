@@ -8,6 +8,14 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 
+mod seinfo;
+
+pub use seinfo::{
+    CommonPermissionSet, ConstraintExpressionToken, ConstraintKind, ConstraintOperator,
+    ConstraintRule, DefaultRangePart, DefaultRule, DefaultRuleKind, DefaultValue, FsUseKind,
+    LabelingRule, PortProtocol, SecurityContext, SeinfoData, User,
+};
+
 macro_rules! policy_id {
     ($name:ident, $description:literal) => {
         #[doc = $description]
@@ -36,6 +44,7 @@ policy_id!(ClassId, "Policy-local object-class identifier.");
 policy_id!(PermissionId, "Policy-local class permission identifier.");
 policy_id!(BooleanId, "Policy-local Boolean identifier.");
 policy_id!(RoleId, "Policy-local role identifier.");
+policy_id!(UserId, "Policy-local SELinux user identifier.");
 policy_id!(SensitivityId, "Policy-local MLS sensitivity identifier.");
 policy_id!(CategoryId, "Policy-local MLS category identifier.");
 policy_id!(
@@ -103,6 +112,8 @@ pub struct TypeSymbol {
     name: String,
     aliases: Vec<String>,
     expanded_types: Vec<TypeId>,
+    permissive: bool,
+    bound: Option<TypeId>,
 }
 
 /// An owned SELinux role record.
@@ -111,6 +122,7 @@ pub struct Role {
     id: RoleId,
     name: String,
     expanded_roles: Vec<RoleId>,
+    authorized_types: Vec<TypeId>,
 }
 
 impl Role {
@@ -121,6 +133,7 @@ impl Role {
             id,
             name,
             expanded_roles,
+            authorized_types: Vec::new(),
         }
     }
 
@@ -141,6 +154,21 @@ impl Role {
     pub fn expanded_roles(&self) -> &[RoleId] {
         &self.expanded_roles
     }
+
+    /// Adds the concrete types authorized for this role.
+    #[must_use]
+    pub fn with_authorized_types(mut self, mut authorized_types: Vec<TypeId>) -> Self {
+        authorized_types.sort_unstable();
+        authorized_types.dedup();
+        self.authorized_types = authorized_types;
+        self
+    }
+
+    /// Returns the concrete types authorized for this role.
+    #[must_use]
+    pub fn authorized_types(&self) -> &[TypeId] {
+        &self.authorized_types
+    }
 }
 
 impl TypeSymbol {
@@ -152,6 +180,8 @@ impl TypeSymbol {
             name,
             aliases: Vec::new(),
             expanded_types: vec![id],
+            permissive: false,
+            bound: None,
         }
     }
 
@@ -163,6 +193,8 @@ impl TypeSymbol {
             name,
             aliases: Vec::new(),
             expanded_types: members,
+            permissive: false,
+            bound: None,
         }
     }
 
@@ -178,16 +210,14 @@ impl TypeSymbol {
         &self.name
     }
 
-    /// Adds canonicalized aliases to a concrete type record.
+    /// Adds aliases in the policy's declaration/hash-table order.
     #[must_use]
-    pub fn with_aliases(mut self, mut aliases: Vec<String>) -> Self {
-        aliases.sort_unstable();
-        aliases.dedup();
+    pub fn with_aliases(mut self, aliases: Vec<String>) -> Self {
         self.aliases = aliases;
         self
     }
 
-    /// Returns aliases in deterministic order.
+    /// Returns aliases in the policy's native order.
     #[must_use]
     pub fn aliases(&self) -> &[String] {
         &self.aliases
@@ -203,6 +233,26 @@ impl TypeSymbol {
     #[must_use]
     pub const fn is_attribute(&self) -> bool {
         matches!(self.id, TypeOrAttributeId::Attribute(_))
+    }
+
+    /// Adds `seinfo` properties copied from the native type datum.
+    #[must_use]
+    pub const fn with_seinfo_properties(mut self, permissive: bool, bound: Option<TypeId>) -> Self {
+        self.permissive = permissive;
+        self.bound = bound;
+        self
+    }
+
+    /// Returns whether this concrete type is permissive.
+    #[must_use]
+    pub const fn is_permissive(&self) -> bool {
+        self.permissive
+    }
+
+    /// Returns this type's bound parent, when present.
+    #[must_use]
+    pub const fn bound(&self) -> Option<TypeId> {
+        self.bound
     }
 }
 
@@ -239,6 +289,8 @@ pub struct ObjectClass {
     id: ClassId,
     name: String,
     permissions: Vec<Permission>,
+    common: Option<String>,
+    local_permissions: Vec<String>,
 }
 
 impl ObjectClass {
@@ -249,6 +301,8 @@ impl ObjectClass {
             id,
             name,
             permissions,
+            common: None,
+            local_permissions: Vec::new(),
         }
     }
 
@@ -268,6 +322,32 @@ impl ObjectClass {
     #[must_use]
     pub fn permissions(&self) -> &[Permission] {
         &self.permissions
+    }
+
+    /// Adds declaration-only information used to expand this class.
+    #[must_use]
+    pub fn with_declaration(
+        mut self,
+        common: Option<String>,
+        mut local_permissions: Vec<String>,
+    ) -> Self {
+        local_permissions.sort_unstable();
+        local_permissions.dedup();
+        self.common = common;
+        self.local_permissions = local_permissions;
+        self
+    }
+
+    /// Returns the inherited common permission-set name.
+    #[must_use]
+    pub fn common(&self) -> Option<&str> {
+        self.common.as_deref()
+    }
+
+    /// Returns permissions declared directly on this class.
+    #[must_use]
+    pub fn local_permissions(&self) -> &[String] {
+        &self.local_permissions
     }
 
     /// Looks up a permission by its class-local ID.
@@ -613,14 +693,12 @@ impl Sensitivity {
 
     /// Adds sensitivity aliases.
     #[must_use]
-    pub fn with_aliases(mut self, mut aliases: Vec<String>) -> Self {
-        aliases.sort_unstable();
-        aliases.dedup();
+    pub fn with_aliases(mut self, aliases: Vec<String>) -> Self {
         self.aliases = aliases;
         self
     }
 
-    /// Returns aliases in deterministic order.
+    /// Returns aliases in the policy's native order.
     #[must_use]
     pub fn aliases(&self) -> &[String] {
         &self.aliases
@@ -660,14 +738,12 @@ impl Category {
 
     /// Adds category aliases.
     #[must_use]
-    pub fn with_aliases(mut self, mut aliases: Vec<String>) -> Self {
-        aliases.sort_unstable();
-        aliases.dedup();
+    pub fn with_aliases(mut self, aliases: Vec<String>) -> Self {
         self.aliases = aliases;
         self
     }
 
-    /// Returns aliases in deterministic order.
+    /// Returns aliases in the policy's native order.
     #[must_use]
     pub fn aliases(&self) -> &[String] {
         &self.aliases
@@ -867,6 +943,7 @@ pub struct Policy {
     categories: Vec<Category>,
     category_names: BTreeMap<String, CategoryId>,
     mls_rules: Vec<MlsRule>,
+    seinfo: SeinfoData,
 }
 
 impl Policy {
@@ -940,6 +1017,41 @@ impl Policy {
         categories: Vec<Category>,
         mls_rules: Vec<MlsRule>,
     ) -> Self {
+        Self::from_all_parts(
+            source,
+            metadata,
+            type_symbols,
+            object_classes,
+            roles,
+            booleans,
+            conditionals,
+            te_rules,
+            rbac_rules,
+            sensitivities,
+            categories,
+            mls_rules,
+            SeinfoData::default(),
+        )
+    }
+
+    /// Creates the complete owned snapshot used by all implemented tools.
+    #[allow(clippy::too_many_arguments)]
+    #[must_use]
+    pub fn from_all_parts(
+        source: PathBuf,
+        metadata: PolicyMetadata,
+        type_symbols: Vec<TypeSymbol>,
+        object_classes: Vec<ObjectClass>,
+        roles: Vec<Role>,
+        booleans: Vec<Boolean>,
+        conditionals: Vec<Conditional>,
+        te_rules: Vec<TeRule>,
+        rbac_rules: Vec<RbacRule>,
+        sensitivities: Vec<Sensitivity>,
+        categories: Vec<Category>,
+        mls_rules: Vec<MlsRule>,
+        seinfo: SeinfoData,
+    ) -> Self {
         let type_names = type_symbols
             .iter()
             .flat_map(|symbol| {
@@ -995,6 +1107,7 @@ impl Policy {
             categories,
             category_names,
             mls_rules,
+            seinfo,
         }
     }
 
@@ -1156,6 +1269,12 @@ impl Policy {
     #[must_use]
     pub fn mls_rules(&self) -> &[MlsRule] {
         &self.mls_rules
+    }
+
+    /// Returns the remaining owned components used by `seinfo`.
+    #[must_use]
+    pub const fn seinfo(&self) -> &SeinfoData {
+        &self.seinfo
     }
 }
 

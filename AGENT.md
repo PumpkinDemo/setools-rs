@@ -33,8 +33,15 @@ CLI 兼容目标是 SETools 4.7.1。新格式或 API 只能作为附加能力引
 - M1 workspace、C bridge 和 owned policy model 已完成。
 - M2 `sesearch` 已完成：TE/xperm/conditional/filename、RBAC、MLS、running-policy、
   verbose/debug、错误处理和确定性输出。
-- 其他五个 binary 仍是 scaffold。
-- 当前主线是 M3 `seinfo`。
+- M3 `seinfo` 已完成：统计摘要、所有 symbol/context/constraint/default/labeling
+  component、SELinux/Xen 两种 target、statement expansion、flat 输出、platform
+  validation、running-policy、日志和错误处理均已接通。
+- `seinfo` 的 owned snapshot 包含 common/class permissions、role authorized types、
+  users/MLS、constraints/defaults、policy capabilities 和全部 labeling contexts；native
+  pointer 不离开 loader。
+- 产品仓库包含独立 SELinux/Xen synthetic policy fixtures 和 Rust integration tests。
+  开发工作区的 legacy 差分矩阵当前 37 个 case 全部逐字节通过，但不属于产品依赖。
+- 当前主线进入 M4 `sediff`；`sedta`、`seinfoflow`、`sechecker` 仍是 scaffold。
 
 常用验证命令：
 
@@ -42,7 +49,7 @@ CLI 兼容目标是 SETools 4.7.1。新格式或 API 只能作为附加能力引
 cargo fmt --all --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
-cargo build --release -p setools-cli --bin sesearch
+cargo build --release -p setools-cli --bin sesearch --bin seinfo
 ```
 
 ## 不可破坏的设计约束

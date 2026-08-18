@@ -2,7 +2,7 @@
 
 最后更新：2026-08-18（Asia/Shanghai）
 
-当前阶段：M2 `sesearch` 已完成；下一工作包为 M3 `seinfo`
+当前阶段：M2 `sesearch`、M3 `seinfo` 已完成；下一阶段为 M4 `sediff`
 
 CLI 兼容目标：SETools 4.7.1
 
@@ -35,12 +35,25 @@ CLI 兼容目标：SETools 4.7.1
 - [x] 所有输出显式确定性排序。
 - [x] release binary 构建成功。
 
-## 当前工作包：M3 `seinfo`
+### M3：`seinfo`
 
-- [ ] 补齐 symbol、context、constraint、default 和 labeling owned model。
-- [ ] 实现 component query、计数、statement rendering 和 expansion 选项。
-- [ ] 对齐 help/version、verbose/debug、错误通道和退出码。
-- [ ] 增加 Rust unit/integration test。
+- [x] 补齐 common/class permissions、role authorized types、user/MLS、constraint、
+  default、policy capability 和 security-context owned model。
+- [x] 在 C bridge 内复制全部 SELinux/Xen labeling data，并在 loader 返回前释放
+  native policy；owned model 不保存 libsepol pointer。
+- [x] 实现 statistics 以及 Boolean、category、class、common、constraint、default、
+  permissive、polcap、role/role-types、sensitivity、typebounds、type、attribute、user、
+  validatetrans component。
+- [x] 实现 SELinux `fs_use`、`genfscon`、`ibpkeycon`、`ibendportcon`、`initialsid`、
+  `netifcon`、`nodecon`、`portcon` 查询。
+- [x] 实现 Xen `devicetreecon`、`iomemcon`、`ioportcon`、`pcidevicecon`、`pirqcon`
+  查询及跨 target 参数校验。
+- [x] 对齐 component 顺序、canonical filtering、`--all`、`--expand`、`--flat`、
+  statement/context/MLS rendering、数值与地址范围解析及确定性排序。
+- [x] 对齐 help/version、running-policy discovery、verbose/debug load/query 日志、
+  argparse/semantic error、stdout/stderr/退出码和 broken pipe 行为。
+- [x] 增加产品自有的 SELinux/Xen synthetic fixtures、unit/integration tests；开发工作区
+  的 37-case legacy 差分矩阵逐字节比较 stdout、stderr 和退出码并全部通过。
 
 ## 后续里程碑
 
@@ -57,12 +70,16 @@ CLI 兼容目标：SETools 4.7.1
 cargo fmt --all --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
-cargo build --release -p setools-cli --bin sesearch
+cargo build --release -p setools-cli --bin sesearch --bin seinfo
 ```
 
-最近一次实现验证：workspace 17 tests、Clippy `-D warnings` 和 release build 通过；
-从仅含本仓库文件、没有相邻 legacy source 或 compatibility harness 的临时导出副本
-重复执行 workspace test 与 release build，同样通过。
+最近一次实现验证：workspace 24 tests、Clippy `-D warnings`、release
+`sesearch`/`seinfo` build 以及 37-case `seinfo` legacy 差分矩阵通过。当前工作区的真实
+policy 还对 statistics、每个 component、`--expand` 和 `--all` 做了逐字节对比。
+
+下一最小工作包：进入 M4，先定义 `sediff` canonical cross-policy keys 和 properties/
+simple-symbol diff，再逐步加入 types、roles、users、classes/commons、MLS、contexts 与
+rule semantic diff。
 
 ## 发布未关闭项
 

@@ -2,8 +2,9 @@
 
 use regex::Regex;
 use setools_policy::{
-    BooleanId, CategoryId, ClassId, MlsLevel, MlsRange, MlsRule, ObjectClass, Policy, RbacRule,
-    RbacRuleData, RbacRuleKind, RoleId, TeRule, TeRuleData, TypeId, TypeOrAttributeId, TypeSymbol,
+    Boolean, BooleanId, Category, CategoryId, ClassId, MlsLevel, MlsRange, MlsRule, ObjectClass,
+    Policy, RbacRule, RbacRuleData, RbacRuleKind, Role, RoleId, Sensitivity, TeRule, TeRuleData,
+    TypeId, TypeOrAttributeId, TypeSymbol,
 };
 use std::collections::BTreeSet;
 use std::error::Error;
@@ -919,11 +920,208 @@ fn class_matches(policy: &Policy, id: ClassId, matcher: &ClassMatcher) -> bool {
     }
 }
 
+fn component_name_matches(name: &str, criterion: Option<&str>) -> bool {
+    criterion.is_none_or(|criterion| name == criterion)
+}
+
+/// Query over concrete type declarations.
+#[derive(Debug)]
+pub struct TypeQuery<'policy> {
+    policy: &'policy Policy,
+    name: Option<String>,
+}
+
+impl<'policy> TypeQuery<'policy> {
+    /// Creates a query which initially matches every concrete type.
+    #[must_use]
+    pub const fn new(policy: &'policy Policy) -> Self {
+        Self { policy, name: None }
+    }
+
+    /// Restricts the query to one canonical type name.
+    pub fn set_name(&mut self, name: impl Into<String>) {
+        self.name = Some(name.into());
+    }
+
+    /// Returns matching concrete types in policy symbol order.
+    pub fn results(&self) -> impl Iterator<Item = &'policy TypeSymbol> + '_ {
+        self.policy.type_symbols().iter().filter(|symbol| {
+            !symbol.is_attribute() && component_name_matches(symbol.name(), self.name.as_deref())
+        })
+    }
+}
+
+/// Query over type-attribute declarations.
+#[derive(Debug)]
+pub struct TypeAttributeQuery<'policy> {
+    policy: &'policy Policy,
+    name: Option<String>,
+}
+
+impl<'policy> TypeAttributeQuery<'policy> {
+    /// Creates a query which initially matches every type attribute.
+    #[must_use]
+    pub const fn new(policy: &'policy Policy) -> Self {
+        Self { policy, name: None }
+    }
+
+    /// Restricts the query to one canonical attribute name.
+    pub fn set_name(&mut self, name: impl Into<String>) {
+        self.name = Some(name.into());
+    }
+
+    /// Returns matching attributes in policy symbol order.
+    pub fn results(&self) -> impl Iterator<Item = &'policy TypeSymbol> + '_ {
+        self.policy.type_symbols().iter().filter(|symbol| {
+            symbol.is_attribute() && component_name_matches(symbol.name(), self.name.as_deref())
+        })
+    }
+}
+
+/// Query over policy Booleans.
+#[derive(Debug)]
+pub struct BoolQuery<'policy> {
+    policy: &'policy Policy,
+    name: Option<String>,
+}
+
+impl<'policy> BoolQuery<'policy> {
+    /// Creates a query which initially matches every Boolean.
+    #[must_use]
+    pub const fn new(policy: &'policy Policy) -> Self {
+        Self { policy, name: None }
+    }
+
+    /// Restricts the query to one Boolean name.
+    pub fn set_name(&mut self, name: impl Into<String>) {
+        self.name = Some(name.into());
+    }
+
+    /// Returns matching Booleans in policy symbol order.
+    pub fn results(&self) -> impl Iterator<Item = &'policy Boolean> + '_ {
+        self.policy
+            .booleans()
+            .iter()
+            .filter(|boolean| component_name_matches(boolean.name(), self.name.as_deref()))
+    }
+}
+
+/// Query over object classes.
+#[derive(Debug)]
+pub struct ObjClassQuery<'policy> {
+    policy: &'policy Policy,
+    name: Option<String>,
+}
+
+impl<'policy> ObjClassQuery<'policy> {
+    /// Creates a query which initially matches every object class.
+    #[must_use]
+    pub const fn new(policy: &'policy Policy) -> Self {
+        Self { policy, name: None }
+    }
+
+    /// Restricts the query to one object-class name.
+    pub fn set_name(&mut self, name: impl Into<String>) {
+        self.name = Some(name.into());
+    }
+
+    /// Returns matching object classes in policy symbol order.
+    pub fn results(&self) -> impl Iterator<Item = &'policy ObjectClass> + '_ {
+        self.policy.object_classes().iter().filter(|target_class| {
+            component_name_matches(target_class.name(), self.name.as_deref())
+        })
+    }
+}
+
+/// Query over roles.
+#[derive(Debug)]
+pub struct RoleQuery<'policy> {
+    policy: &'policy Policy,
+    name: Option<String>,
+}
+
+impl<'policy> RoleQuery<'policy> {
+    /// Creates a query which initially matches every role.
+    #[must_use]
+    pub const fn new(policy: &'policy Policy) -> Self {
+        Self { policy, name: None }
+    }
+
+    /// Restricts the query to one role name.
+    pub fn set_name(&mut self, name: impl Into<String>) {
+        self.name = Some(name.into());
+    }
+
+    /// Returns matching roles in policy symbol order.
+    pub fn results(&self) -> impl Iterator<Item = &'policy Role> + '_ {
+        self.policy
+            .roles()
+            .iter()
+            .filter(|role| component_name_matches(role.name(), self.name.as_deref()))
+    }
+}
+
+/// Query over canonical MLS sensitivities.
+#[derive(Debug)]
+pub struct SensitivityQuery<'policy> {
+    policy: &'policy Policy,
+    name: Option<String>,
+}
+
+impl<'policy> SensitivityQuery<'policy> {
+    /// Creates a query which initially matches every sensitivity.
+    #[must_use]
+    pub const fn new(policy: &'policy Policy) -> Self {
+        Self { policy, name: None }
+    }
+
+    /// Restricts the query to one canonical sensitivity name.
+    pub fn set_name(&mut self, name: impl Into<String>) {
+        self.name = Some(name.into());
+    }
+
+    /// Returns matching sensitivities in policy order.
+    pub fn results(&self) -> impl Iterator<Item = &'policy Sensitivity> + '_ {
+        self.policy
+            .sensitivities()
+            .iter()
+            .filter(|value| component_name_matches(value.name(), self.name.as_deref()))
+    }
+}
+
+/// Query over canonical MLS categories.
+#[derive(Debug)]
+pub struct CategoryQuery<'policy> {
+    policy: &'policy Policy,
+    name: Option<String>,
+}
+
+impl<'policy> CategoryQuery<'policy> {
+    /// Creates a query which initially matches every category.
+    #[must_use]
+    pub const fn new(policy: &'policy Policy) -> Self {
+        Self { policy, name: None }
+    }
+
+    /// Restricts the query to one canonical category name.
+    pub fn set_name(&mut self, name: impl Into<String>) {
+        self.name = Some(name.into());
+    }
+
+    /// Returns matching categories in policy order.
+    pub fn results(&self) -> impl Iterator<Item = &'policy Category> + '_ {
+        self.policy
+            .categories()
+            .iter()
+            .filter(|value| component_name_matches(value.name(), self.name.as_deref()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{QueryError, TeRuleQuery};
+    use super::{QueryError, TeRuleQuery, TypeAttributeQuery, TypeQuery};
     use setools_policy::{
-        HandleUnknown, Policy, PolicyMetadata, TargetPlatform, TypeId, TypeSymbol,
+        AttributeId, HandleUnknown, Policy, PolicyMetadata, TargetPlatform, TypeId, TypeSymbol,
     };
     use std::path::PathBuf;
 
@@ -964,6 +1162,44 @@ mod tests {
             Err(QueryError::InvalidRegex(
                 "unterminated character set at position 0".to_owned()
             ))
+        );
+    }
+
+    #[test]
+    fn component_type_queries_separate_types_and_attributes() {
+        let policy = Policy::from_parts(
+            PathBuf::from("policy.35"),
+            PolicyMetadata {
+                version: 35,
+                mls: true,
+                target: TargetPlatform::Selinux,
+                handle_unknown: HandleUnknown::Reject,
+            },
+            vec![
+                TypeSymbol::new_type(TypeId::from_raw(0), "example_t".to_owned()),
+                TypeSymbol::new_attribute(
+                    AttributeId::from_raw(1),
+                    "example_attr".to_owned(),
+                    vec![TypeId::from_raw(0)],
+                ),
+            ],
+            Vec::new(),
+            Vec::new(),
+        );
+
+        assert_eq!(
+            TypeQuery::new(&policy)
+                .results()
+                .map(TypeSymbol::name)
+                .collect::<Vec<_>>(),
+            ["example_t"]
+        );
+        assert_eq!(
+            TypeAttributeQuery::new(&policy)
+                .results()
+                .map(TypeSymbol::name)
+                .collect::<Vec<_>>(),
+            ["example_attr"]
         );
     }
 }

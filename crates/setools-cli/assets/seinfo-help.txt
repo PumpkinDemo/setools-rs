@@ -1,0 +1,74 @@
+usage: seinfo [-h] [--version] [-x] [--flat] [-v] [--debug] [-a [ATTR]]
+              [-b [BOOL]] [-c [CLASS]] [-r [ROLE]] [-t [TYPE]] [-u [USER]]
+              [--category [CAT]] [--common [COMMON]] [--constrain [CLASS]]
+              [--default [CLASS]] [--permissive [TYPE]] [--polcap [NAME]]
+              [--role_types TYPE] [--sensitivity [SENS]]
+              [--typebounds [BOUND_TYPE]] [--validatetrans [CLASS]] [--all]
+              [--fs_use [FS_TYPE]] [--genfscon [FS_TYPE]]
+              [--ibpkeycon [PKEY[-PKEY]]] [--ibendportcon [NAME]]
+              [--initialsid [NAME]] [--netifcon [DEVICE]] [--nodecon [ADDR]]
+              [--portcon [PORTNUM[-PORTNUM]]] [--devicetreecon [PATH]]
+              [--iomemcon [ADDR[-ADDR]]] [--ioportcon [PORTNUM[-PORTNUM]]]
+              [--pcidevicecon [DEVICE]] [--pirqcon [IRQ]]
+              [policy]
+
+SELinux policy information tool.
+
+positional arguments:
+  policy                Path to the SELinux policy to query.
+
+options:
+  -h, --help            show this help message and exit
+  --version             show program's version number and exit
+  -x, --expand          Print additional information about the specified
+                        components.
+  --flat                Print without item count nor indentation.
+  -v, --verbose         Print extra informational messages
+  --debug               Enable debugging.
+
+Component Queries:
+  -a, --attribute [ATTR]
+                        Print type attributes.
+  -b, --bool [BOOL]     Print Booleans.
+  -c, --class [CLASS]   Print object classes.
+  -r, --role [ROLE]     Print roles.
+  -t, --type [TYPE]     Print types.
+  -u, --user [USER]     Print users.
+  --category [CAT]      Print MLS categories.
+  --common [COMMON]     Print common permission set.
+  --constrain [CLASS]   Print constraints.
+  --default [CLASS]     Print default_* rules.
+  --permissive [TYPE]   Print permissive types.
+  --polcap [NAME]       Print policy capabilities.
+  --role_types TYPE     Print all roles associated with the given type.
+  --sensitivity [SENS]  Print MLS sensitivities.
+  --typebounds [BOUND_TYPE]
+                        Print typebounds statements.
+  --validatetrans [CLASS]
+                        Print validatetrans.
+  --all                 Print all of the above. On a Xen policy, the Xen
+                        components will also be printed
+
+SELinux-specific Queries:
+  --fs_use [FS_TYPE]    Print fs_use statements.
+  --genfscon [FS_TYPE]  Print genfscon statements.
+  --ibpkeycon [PKEY[-PKEY]]
+                        Infiniband pkey statements.
+  --ibendportcon [NAME]
+                        Infiniband endport statements.
+  --initialsid [NAME]   Print initial SIDs (contexts).
+  --netifcon [DEVICE]   Print netifcon statements.
+  --nodecon [ADDR]      Print nodecon statements.
+  --portcon [PORTNUM[-PORTNUM]]
+                        Print portcon statements.
+
+Xen-specific Queries:
+  --devicetreecon [PATH]
+                        Print all devicetreecon statements.
+  --iomemcon [ADDR[-ADDR]]
+                        Print all iomemcon statements.
+  --ioportcon [PORTNUM[-PORTNUM]]
+                        Print all ioportcon statements.
+  --pcidevicecon [DEVICE]
+                        Print all pcidevicecon statements.
+  --pirqcon [IRQ]       Print all pirqcon statements.
