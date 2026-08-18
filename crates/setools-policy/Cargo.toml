@@ -1,0 +1,12 @@
+[package]
+name = "setools-policy"
+description = "Owned SELinux policy model for the SETools Rust rewrite"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license = "LGPL-2.1-only"
+publish = false
+
+[lints]
+workspace = true

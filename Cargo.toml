@@ -1,0 +1,25 @@
+[workspace]
+members = [
+    "crates/setools-cli",
+    "crates/setools-diff",
+    "crates/setools-graph",
+    "crates/setools-policy",
+    "crates/setools-query",
+    "crates/setools-sepol",
+]
+default-members = ["crates/setools-cli"]
+resolver = "3"
+
+[workspace.package]
+version = "4.7.1"
+edition = "2024"
+rust-version = "1.85"
+authors = ["SETools Rust Rewrite contributors"]
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "warn"

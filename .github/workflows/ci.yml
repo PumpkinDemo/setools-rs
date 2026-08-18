@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+
+    steps:
+      - name: Install native dependencies
+        run: >-
+          dnf install -y
+          checkpolicy diffutils gcc git libselinux-devel libsepol-devel
+          pkgconf-pkg-config python3
+
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+
+      - name: Verify workspace metadata
+        run: cargo metadata --no-deps --format-version 1
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Run tests
+        run: cargo test --workspace
+
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Build release sesearch
+        run: cargo build --release -p setools-cli --bin sesearch

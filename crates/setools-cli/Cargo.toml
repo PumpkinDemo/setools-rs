@@ -1,0 +1,19 @@
+[package]
+name = "setools-cli"
+description = "SETools-compatible command-line binaries implemented in Rust"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license = "GPL-2.0-only"
+publish = false
+
+[dependencies]
+setools-diff = { path = "../setools-diff" }
+setools-graph = { path = "../setools-graph" }
+setools-policy = { path = "../setools-policy" }
+setools-query = { path = "../setools-query" }
+setools-sepol = { path = "../setools-sepol" }
+
+[lints]
+workspace = true

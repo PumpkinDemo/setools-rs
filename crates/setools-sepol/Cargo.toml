@@ -1,0 +1,24 @@
+[package]
+name = "setools-sepol"
+description = "libsepol bridge for the SETools Rust rewrite"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license = "LGPL-2.1-only"
+publish = false
+
+[dependencies]
+setools-policy = { path = "../setools-policy" }
+
+[build-dependencies]
+cc = "1.2"
+pkg-config = "0.3"
+
+[lints.rust]
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "warn"

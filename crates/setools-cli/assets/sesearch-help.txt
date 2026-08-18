@@ -1,0 +1,77 @@
+usage: sesearch [-h] [--version] [-v] [--debug] [-A] [--allow] [--allowxperm]
+                [--auditallow] [--auditallowxperm] [--dontaudit]
+                [--dontauditxperm] [-T] [--type_change] [--type_member]
+                [--role_allow] [--role_transition] [--range_transition]
+                [-s SOURCE] [-t TARGET] [-c TCLASS] [-p PERMS] [-x XPERMS]
+                [-D DEFAULT] [-b BOOL] [-eb] [-ep] [-ex] [-Sp] [-ds] [-dt]
+                [-rs] [-rt] [-rc] [-rd] [-rb]
+                [policy]
+
+SELinux policy rule search tool.
+
+positional arguments:
+  policy                Path to the SELinux policy to search.
+
+options:
+  -h, --help            show this help message and exit
+  --version             show program's version number and exit
+  -v, --verbose         Print extra informational messages
+  --debug               Enable debugging.
+
+TE Rule Types:
+  -A                    Search allow and allowxperm rules.
+  --allow               Search allow rules.
+  --allowxperm          Search allowxperm rules.
+  --auditallow          Search auditallow rules.
+  --auditallowxperm     Search auditallowxperm rules.
+  --dontaudit           Search dontaudit rules.
+  --dontauditxperm      Search dontauditxperm rules.
+  -T, --type_transition
+                        Search type_transition rules.
+  --type_change         Search type_change rules.
+  --type_member         Search type_member rules.
+
+RBAC Rule Types:
+  --role_allow          Search role allow rules.
+  --role_transition     Search role_transition rules.
+
+MLS Rule Types:
+  --range_transition    Search range_transition rules.
+
+Expressions:
+  -s, --source SOURCE   Source type/role of the TE/RBAC rule.
+  -t, --target TARGET   Target type/role of the TE/RBAC rule.
+  -c, --class TCLASS    Comma separated list of object classes
+  -p, --perms PERMS     Comma separated list of permissions. (TE rule searches
+                        only.)
+  -x, --xperms XPERMS   Comma separated list of extended permissions. (TE rule
+                        searches only.)
+  -D, --default DEFAULT
+                        Default of the rule. (type/role/range transition
+                        rules)
+  -b, --bool BOOL       Comma separated list of Booleans in the conditional
+                        expression. (TE rule searches only.)
+
+Search options:
+  -eb                   Match Boolean list exactly instead of matching any
+                        listed Boolean.
+  -ep                   Match permission set exactly instead of matching any
+                        listed permission.
+  -ex                   Match extended permission set exactly instead of
+                        matching any listed permission.
+  -Sp                   Match rules where the listed permissions are a subset
+                        of the rule permissions.
+  -ds                   Match source attributes directly instead of matching
+                        member types/roles.
+  -dt                   Match target attributes directly instead of matching
+                        member types/roles.
+  -rs                   Use regular expression matching for the source
+                        type/role.
+  -rt                   Use regular expression matching for the target
+                        type/role.
+  -rc                   Use regular expression matching for the object class.
+  -rd                   Use regular expression matching for the default
+                        type/role.
+  -rb                   Use regular expression matching for Booleans.
+
+TE/MLS rule searches cannot be mixed with RBAC rule searches.
