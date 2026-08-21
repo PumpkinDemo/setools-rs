@@ -1361,6 +1361,48 @@ int32_t st_policy_sensitivity_alias_get(const st_policy *policy,
     return ST_STATUS_INVALID_METADATA;
 }
 
+int32_t st_policy_sensitivity_categories_get(
+    const st_policy *policy, uint32_t sensitivity, uint32_t *categories,
+    size_t capacity, size_t *count, st_error *error)
+{
+    const policydb_t *policydb;
+    const hashtab_t table = policy != NULL && policy->policydb != NULL
+                                ? policy->policydb->p.p_levels.table
+                                : NULL;
+    hashtab_ptr_t node;
+    uint32_t bucket;
+
+    if (error != NULL) {
+        error->code = ST_STATUS_OK;
+        error->message = NULL;
+    }
+    if (policy == NULL || policy->policydb == NULL || count == NULL) {
+        st_error_set(error, ST_STATUS_INVALID_ARGUMENT,
+                     "policy and sensitivity category pointers must not be null");
+        return ST_STATUS_INVALID_ARGUMENT;
+    }
+    policydb = &policy->policydb->p;
+    if (sensitivity >= policydb->p_levels.nprim || table == NULL) {
+        st_error_set(error, ST_STATUS_INVALID_METADATA,
+                     "sensitivity index %u is not present", sensitivity);
+        return ST_STATUS_INVALID_METADATA;
+    }
+    for (bucket = 0U; bucket < table->size; bucket++) {
+        for (node = table->htable[bucket]; node != NULL; node = node->next) {
+            const level_datum_t *datum = node->datum;
+            if (datum != NULL && !datum->isalias && datum->level != NULL &&
+                datum->level->sens == sensitivity + 1U) {
+                return st_bitmap_copy(&datum->level->cat, policydb->p_cats.nprim,
+                                      categories, capacity, count,
+                                      "sensitivity category set", error);
+            }
+        }
+    }
+    st_error_set(error, ST_STATUS_INVALID_METADATA,
+                 "sensitivity index %u has no canonical declaration", sensitivity);
+    return ST_STATUS_INVALID_METADATA;
+}
+
 uint32_t st_policy_category_count(const st_policy *policy)
 {
     const policydb_t *policydb;

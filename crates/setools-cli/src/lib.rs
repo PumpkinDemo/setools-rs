@@ -4,6 +4,7 @@ use std::env;
 use std::fmt;
 use std::process::ExitCode;
 
+mod sediff;
 mod seinfo;
 mod sesearch;
 
@@ -45,6 +46,7 @@ pub fn run(tool: Tool) -> ExitCode {
     match tool {
         Tool::Sesearch => return sesearch::run(arguments),
         Tool::Seinfo => return seinfo::run(arguments),
+        Tool::Sediff => return sediff::run(arguments),
         _ => {}
     }
     if arguments.len() == 1 && arguments[0] == "--version" {

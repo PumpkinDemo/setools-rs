@@ -93,6 +93,14 @@ fn loads_mls_range_transitions() {
         .expect("the MLS fixture must load");
 
     assert_eq!(policy.mls_rules().len(), 38);
+    assert_eq!(
+        policy
+            .sensitivity_by_name("s40")
+            .expect("s40 sensitivity declaration must resolve")
+            .categories()
+            .len(),
+        5
+    );
     let rule = policy
         .mls_rules()
         .iter()

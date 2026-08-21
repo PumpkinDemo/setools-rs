@@ -1,0 +1,79 @@
+usage: sediff [-h] [--version] [--stats] [-v] [--debug] [--common] [-c] [-t]
+              [-a] [-r] [-u] [-b] [--sensitivity] [--category] [--level] [-A]
+              [--allow] [--auditallow] [--dontaudit] [--allowxperm]
+              [--auditallowxperm] [--dontauditxperm] [-T] [--type_change]
+              [--type_member] [--role_allow] [--role_trans] [--range_trans]
+              [--constrain] [--mlsconstrain] [--validatetrans]
+              [--mlsvalidatetrans] [--ibendportcon] [--ibpkeycon]
+              [--initialsid] [--fs_use] [--genfscon] [--netifcon] [--nodecon]
+              [--portcon] [--default] [--property] [--polcap] [--typebounds]
+              POLICY1 POLICY2
+
+SELinux policy semantic difference tool.
+
+positional arguments:
+  POLICY1             Path to the first SELinux policy to diff.
+  POLICY2             Path to the second SELinux policy to diff.
+
+options:
+  -h, --help          show this help message and exit
+  --version           show program's version number and exit
+  --stats             Display only statistics.
+  -v, --verbose       Print extra informational messages
+  --debug             Enable debugging.
+
+component differences:
+  --common            Print common differences
+  -c, --class         Print class differences
+  -t, --type          Print type differences
+  -a, --attribute     Print type attribute differences
+  -r, --role          Print role differences
+  -u, --user          Print user differences
+  -b, --bool          Print Boolean differences
+  --sensitivity       Print MLS sensitivity differences
+  --category          Print MLS category differences
+  --level             Print MLS level definition differences
+
+type enforcement rule differences:
+  -A                  Print allow and allowxperm rule differences
+  --allow             Print allow rule differences
+  --auditallow        Print auditallow rule differences
+  --dontaudit         Print dontaudit rule differences
+  --allowxperm        Print allowxperm rule differences
+  --auditallowxperm   Print auditallowxperm rule differences
+  --dontauditxperm    Print dontauditxperm rule differences
+  -T, --type_trans    Print type_transition rule differences
+  --type_change       Print type_change rule differences
+  --type_member       Print type_member rule differences
+
+RBAC rule differences:
+  --role_allow        Print role allow rule differences
+  --role_trans        Print role_transition rule differences
+
+MLS rule differences:
+  --range_trans       Print range_transition rule differences
+
+Constraint differences:
+  --constrain         Print constrain differences
+  --mlsconstrain      Print mlsconstrain differences
+  --validatetrans     Print validatetrans differences
+  --mlsvalidatetrans  Print mlsvalidatetrans differences
+
+labeling statement differences:
+  --ibendportcon      Print ibendportcon differences
+  --ibpkeycon         Print ibkeycon differences
+  --initialsid        Print initial SID differences
+  --fs_use            Print fs_use_* differences
+  --genfscon          Print genfscon differences
+  --netifcon          Print netifcon differences
+  --nodecon           Print nodecon differences
+  --portcon           Print portcon differences
+
+other differences:
+  --default           Print default_* differences
+  --property          Print policy property differences (handle_unknown,
+                      version, MLS)
+  --polcap            Print policy capability differences
+  --typebounds        Print typebounds differences
+
+If no differences are selected, all differences will be printed.

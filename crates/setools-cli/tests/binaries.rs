@@ -194,3 +194,185 @@ fn seinfo_preserves_query_and_error_contracts() {
     assert_eq!(invalid.stdout, b"missing_class is not a valid class\n");
     assert!(invalid.stderr.is_empty());
 }
+
+#[test]
+fn sediff_reports_simple_semantic_components() {
+    let left = CompiledPolicy::build_fixture("diff-simple-left.conf", None);
+    let right = CompiledPolicy::build_fixture("diff-simple-right.conf", None);
+    let arguments = [
+        "--property",
+        "--polcap",
+        "--bool",
+        "--attribute",
+        "--category",
+        "--sensitivity",
+    ];
+    let output = Command::new(env!("CARGO_BIN_EXE_sediff"))
+        .args(arguments)
+        .arg(&left.0)
+        .arg(&right.0)
+        .output()
+        .expect("sediff should execute");
+
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        output.stdout,
+        concat!(
+            "Policy Properties (0 Modified)\n",
+            "\n",
+            "Policy Capabilities (1 Added, 1 Removed)\n",
+            "   Added Policy Capabilities: 1\n",
+            "      + always_check_network\n",
+            "   Removed Policy Capabilities: 1\n",
+            "      - network_peer_controls\n",
+            "\n",
+            "Booleans (1 Added, 1 Removed, 1 Modified)\n",
+            "   Added Booleans: 1\n",
+            "      + added_bool\n",
+            "   Removed Booleans: 1\n",
+            "      - removed_bool\n",
+            "   Modified Booleans: 1\n",
+            "      * modified_bool (Modified default state)\n",
+            "          + True\n",
+            "          - False\n",
+            "\n",
+            "Type Attributes (1 Added, 1 Removed, 1 Modified)\n",
+            "   Added Type Attributes: 1\n",
+            "      + added_attr\n",
+            "   Removed Type Attributes: 1\n",
+            "      - removed_attr\n",
+            "   Modified Type Attributes: 1\n",
+            "      * changing_attr (1 Added types, 1 Removed types)\n",
+            "          + right_member\n",
+            "          - left_member\n",
+            "\n",
+            "Categories (1 Added, 1 Removed, 1 Modified)\n",
+            "   Added Categories: 1\n",
+            "      + added_category\n",
+            "   Removed Categories: 1\n",
+            "      - removed_category\n",
+            "   Modified Categories: 1\n",
+            "      * c0 (1 Added Aliases, 1 Removed Aliases)\n",
+            "          Aliases:\n",
+            "          + added_category_alias\n",
+            "          - removed_category_alias\n",
+            "\n",
+            "Sensitivities (1 Added, 1 Removed, 1 Modified)\n",
+            "   Added Sensitivities: 1\n",
+            "      + added_sensitivity\n",
+            "   Removed Sensitivities: 1\n",
+            "      - removed_sensitivity\n",
+            "   Modified Sensitivities: 1\n",
+            "      * s0 (1 Added Aliases, 1 Removed Aliases)\n",
+            "          Aliases:\n",
+            "          + added_sens_alias\n",
+            "          - removed_sens_alias\n",
+            "\n",
+        )
+        .as_bytes()
+    );
+
+    let stats = Command::new(env!("CARGO_BIN_EXE_sediff"))
+        .arg("--stats")
+        .args(arguments)
+        .arg(&left.0)
+        .arg(&right.0)
+        .output()
+        .expect("sediff --stats should execute");
+    assert!(stats.status.success());
+    assert!(stats.stderr.is_empty());
+    assert_eq!(
+        stats.stdout,
+        concat!(
+            "Policy Properties (0 Modified)\n\n",
+            "Policy Capabilities (1 Added, 1 Removed)\n\n",
+            "Booleans (1 Added, 1 Removed, 1 Modified)\n\n",
+            "Type Attributes (1 Added, 1 Removed, 1 Modified)\n\n",
+            "Categories (1 Added, 1 Removed, 1 Modified)\n\n",
+            "Sensitivities (1 Added, 1 Removed, 1 Modified)\n\n",
+        )
+        .as_bytes()
+    );
+}
+
+#[test]
+fn sediff_accepts_every_component_and_defaults_to_all_differences() {
+    let left = CompiledPolicy::build_fixture("diff-simple-left.conf", None);
+    let right = CompiledPolicy::build_fixture("diff-simple-right.conf", None);
+    let components = [
+        "--property",
+        "--polcap",
+        "--common",
+        "--class",
+        "--type",
+        "--attribute",
+        "--role",
+        "--user",
+        "--bool",
+        "--sensitivity",
+        "--category",
+        "--level",
+        "--allow",
+        "--auditallow",
+        "--dontaudit",
+        "--allowxperm",
+        "--auditallowxperm",
+        "--dontauditxperm",
+        "--type_trans",
+        "--type_change",
+        "--type_member",
+        "--role_allow",
+        "--role_trans",
+        "--range_trans",
+        "--constrain",
+        "--mlsconstrain",
+        "--validatetrans",
+        "--mlsvalidatetrans",
+        "--ibendportcon",
+        "--ibpkeycon",
+        "--initialsid",
+        "--fs_use",
+        "--genfscon",
+        "--netifcon",
+        "--nodecon",
+        "--portcon",
+        "--default",
+        "--typebounds",
+    ];
+    let explicit = Command::new(env!("CARGO_BIN_EXE_sediff"))
+        .arg("--stats")
+        .args(components)
+        .arg(&left.0)
+        .arg(&right.0)
+        .output()
+        .expect("complete sediff should execute");
+    assert!(explicit.status.success());
+    assert!(explicit.stderr.is_empty());
+    let explicit = String::from_utf8(explicit.stdout).expect("sediff output should be UTF-8");
+    for heading in [
+        "Policy Properties",
+        "Commons",
+        "Types",
+        "Allow Rules",
+        "Allowxperm Rules",
+        "Role_transition Rules",
+        "Range_transition Rules",
+        "MLS Validatetrans",
+        "Initial SIDs",
+        "Ibpkeycons",
+        "Portcons",
+    ] {
+        assert!(explicit.contains(heading), "missing {heading} section");
+    }
+
+    let all = Command::new(env!("CARGO_BIN_EXE_sediff"))
+        .arg(&left.0)
+        .arg(&right.0)
+        .output()
+        .expect("default all-component sediff should execute");
+    assert!(all.status.success());
+    assert!(all.stderr.is_empty());
+    assert!(!all.stdout.is_empty());
+    assert!(!all.stdout.starts_with(b"Policy Properties (0 Modified)"));
+}

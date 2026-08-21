@@ -666,6 +666,7 @@ pub struct Sensitivity {
     id: SensitivityId,
     name: String,
     aliases: Vec<String>,
+    categories: Vec<CategoryId>,
 }
 
 impl Sensitivity {
@@ -676,6 +677,7 @@ impl Sensitivity {
             id,
             name,
             aliases: Vec::new(),
+            categories: Vec::new(),
         }
     }
 
@@ -702,6 +704,21 @@ impl Sensitivity {
     #[must_use]
     pub fn aliases(&self) -> &[String] {
         &self.aliases
+    }
+
+    /// Adds the categories authorized by this sensitivity declaration.
+    #[must_use]
+    pub fn with_categories(mut self, mut categories: Vec<CategoryId>) -> Self {
+        categories.sort_unstable();
+        categories.dedup();
+        self.categories = categories;
+        self
+    }
+
+    /// Returns categories authorized by this sensitivity declaration.
+    #[must_use]
+    pub fn categories(&self) -> &[CategoryId] {
+        &self.categories
     }
 }
 

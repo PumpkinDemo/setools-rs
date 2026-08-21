@@ -1,8 +1,8 @@
 # SETools Rust 重写进度
 
-最后更新：2026-08-18（Asia/Shanghai）
+最后更新：2026-08-21（Asia/Shanghai）
 
-当前阶段：M2 `sesearch`、M3 `seinfo` 已完成；下一阶段为 M4 `sediff`
+当前阶段：M2 `sesearch`、M3 `seinfo`、M4 `sediff` 已完成；下一阶段 M5
 
 CLI 兼容目标：SETools 4.7.1
 
@@ -55,9 +55,23 @@ CLI 兼容目标：SETools 4.7.1
 - [x] 增加产品自有的 SELinux/Xen synthetic fixtures、unit/integration tests；开发工作区
   的 37-case legacy 差分矩阵逐字节比较 stdout、stderr 和退出码并全部通过。
 
+### M4：`sediff`
+
+- [x] 所有跨 policy identity 使用 canonical name/semantic value，不比较 policy-local
+  numeric ID。
+- [x] 实现 property、symbol、common/class、user/MLS level、default 和 typebounds diff。
+- [x] 实现 TE/xperm、RBAC、MLS range-transition 和 constraint semantic diff。
+- [x] AV diff 展开 source/target attribute、合并重复 rules，并移除已由无条件 rule
+  覆盖的 conditional permissions。
+- [x] 实现全部 SELinux labeling diff，包括双 context 的 netifcon。
+- [x] 对齐所有 component option、`-A`、`-T`、固定顺序、`--stats`、默认全量模式、
+  help/version、verbose/debug、错误通道和确定性输出。
+- [x] 产品 integration tests 覆盖全部 option 和默认模式；开发工作区 64-case legacy
+  matrix（含完整 fixture、冗余 AV、verbose 和错误路径）逐字节通过。
+
 ## 后续里程碑
 
-- [ ] M4：`sediff` semantic diff。
+- [x] M4：`sediff` semantic diff。
 - [ ] M5：`sedta` 与 `seinfoflow` graph analysis。
 - [ ] M6：`sechecker`、结构化输出、completion 和 man page。
 - [ ] M7：可选纯 Rust binary-policy parser；不阻塞首个发布。
@@ -70,20 +84,21 @@ CLI 兼容目标：SETools 4.7.1
 cargo fmt --all --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
-cargo build --release -p setools-cli --bin sesearch --bin seinfo
+cargo build --release -p setools-cli --bin sesearch --bin seinfo --bin sediff
 ```
 
-最近一次实现验证：workspace 24 tests、Clippy `-D warnings`、release
-`sesearch`/`seinfo` build 以及 37-case `seinfo` legacy 差分矩阵通过。当前工作区的真实
-policy 还对 statistics、每个 component、`--expand` 和 `--all` 做了逐字节对比。
+最近一次实现验证：workspace 29 tests、Clippy `-D warnings`、release
+`sesearch`/`seinfo`/`sediff` build、64-case `sesearch`、37-case `seinfo` 和 64-case
+`sediff` legacy 差分矩阵通过。ASan/UBSan 在关闭 leak detection 后覆盖 bridge unit 与
+四个真实 policy load tests；LeakSanitizer 在当前 ptrace sandbox 中不可运行，仍需普通
+shell/CI 执行既有 sanitizer job。
 
-下一最小工作包：进入 M4，先定义 `sediff` canonical cross-policy keys 和 properties/
-simple-symbol diff，再逐步加入 types、roles、users、classes/commons、MLS、contexts 与
-rule semantic diff。
+下一最小工作包：进入 M5，先冻结 `sedta` 的 CLI/graph contract，再实现最小
+domain-transition analysis 垂直切片。
 
 ## 发布未关闭项
 
-- [ ] 完成 `seinfo` 与 `sediff` 后再声明首个多工具兼容版本。
+- [x] `sesearch`、`seinfo` 与 `sediff` 首个多工具兼容范围已完成。
 - [ ] 生成 man page。
 - [ ] 建立支持的 libsepol version CI matrix。
 - [ ] 记录性能和峰值内存基线。

@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::rc::Rc;
 
-const BRIDGE_ABI_VERSION: u32 = 4;
+const BRIDGE_ABI_VERSION: u32 = 5;
 const INVALID_METADATA: i32 = 5;
 
 /// libsepol-backed binary policy loader.
@@ -164,8 +164,8 @@ impl PolicyLoader for LibsepolLoader {
         let mut te_rules = native.te_rules(path, &type_symbols, &object_classes, &conditionals)?;
         te_rules.extend(native.filename_rules(path, &type_symbols, &object_classes)?);
         let rbac_rules = native.rbac_rules(path, &type_symbols, &object_classes, &roles)?;
-        let sensitivities = native.sensitivities(path)?;
         let categories = native.categories(path)?;
+        let sensitivities = native.sensitivities(path, categories.len())?;
         let mls_rules = native.mls_rules(
             path,
             &type_symbols,
@@ -947,7 +947,11 @@ impl NativePolicy {
         Ok(rules)
     }
 
-    fn sensitivities(&self, path: &Path) -> Result<Vec<Sensitivity>, LoadError> {
+    fn sensitivities(
+        &self,
+        path: &Path,
+        category_count: usize,
+    ) -> Result<Vec<Sensitivity>, LoadError> {
         // SAFETY: the native policy handle is valid for this method call.
         let count = unsafe { ffi::st_policy_sensitivity_count(self.raw.as_ptr()) };
         let mut values = Vec::with_capacity(count as usize);
@@ -959,6 +963,7 @@ impl NativePolicy {
                 ffi::st_policy_sensitivity_get(self.raw.as_ptr(), index, &mut name, &mut error)
             };
             check_status(path, status, &mut error, "could not copy sensitivity")?;
+            let categories = self.sensitivity_categories(path, index, category_count)?;
             values.push(
                 Sensitivity::new(
                     SensitivityId::from_raw(index),
@@ -970,10 +975,64 @@ impl NativePolicy {
                     ffi::st_policy_sensitivity_alias_count,
                     ffi::st_policy_sensitivity_alias_get,
                     "sensitivity alias",
-                )?),
+                )?)
+                .with_categories(categories),
             );
         }
         Ok(values)
+    }
+
+    fn sensitivity_categories(
+        &self,
+        path: &Path,
+        sensitivity: u32,
+        category_count: usize,
+    ) -> Result<Vec<CategoryId>, LoadError> {
+        let mut count = 0_usize;
+        let mut error = ffi::StError::default();
+        // SAFETY: the policy remains alive and count is writable.
+        let status = unsafe {
+            ffi::st_policy_sensitivity_categories_get(
+                self.raw.as_ptr(),
+                sensitivity,
+                std::ptr::null_mut(),
+                0,
+                &mut count,
+                &mut error,
+            )
+        };
+        check_status(
+            path,
+            status,
+            &mut error,
+            "could not count sensitivity categories",
+        )?;
+        let mut raw = vec![0_u32; count];
+        // SAFETY: raw has the advertised capacity and the policy remains alive.
+        let status = unsafe {
+            ffi::st_policy_sensitivity_categories_get(
+                self.raw.as_ptr(),
+                sensitivity,
+                raw.as_mut_ptr(),
+                raw.len(),
+                &mut count,
+                &mut error,
+            )
+        };
+        check_status(
+            path,
+            status,
+            &mut error,
+            "could not copy sensitivity categories",
+        )?;
+        if count != raw.len() || raw.iter().any(|value| *value as usize >= category_count) {
+            return Err(LoadError::new(
+                path,
+                INVALID_METADATA,
+                "sensitivity has invalid categories".to_owned(),
+            ));
+        }
+        Ok(raw.into_iter().map(CategoryId::from_raw).collect())
     }
 
     fn categories(&self, path: &Path) -> Result<Vec<Category>, LoadError> {
@@ -2545,6 +2604,14 @@ mod ffi {
             sensitivity: u32,
             index: u32,
             name: *mut StStringView,
+            error: *mut StError,
+        ) -> c_int;
+        pub fn st_policy_sensitivity_categories_get(
+            policy: *const StPolicy,
+            sensitivity: u32,
+            categories: *mut u32,
+            capacity: usize,
+            count: *mut usize,
             error: *mut StError,
         ) -> c_int;
         pub fn st_policy_category_count(policy: *const StPolicy) -> u32;

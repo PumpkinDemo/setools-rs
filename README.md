@@ -20,8 +20,16 @@ Xen labeling statements. It supports component filtering, `--all`, `--expand`,
 `--flat`, platform validation, running-policy discovery, and verbose/debug
 diagnostics.
 
-`sediff`, `sedta`, `seinfoflow`, and `sechecker` remain scaffolds. See [the
-progress document](docs/RUST_REWRITE_PROGRESS.md) for details.
+`sediff` is implemented. It compares every SETools 4.7.1 CLI component:
+symbols and properties, defaults and bounds, TE/xperm rules, RBAC and MLS
+rules, constraints, and SELinux labeling statements. Cross-policy keys use
+canonical names rather than policy-local IDs; AV rules expand attributes,
+merge duplicate grants, and remove conditional permissions already granted
+unconditionally. It supports individual component selection, `-A`, `-T`,
+`--stats`, the default all-component mode, and verbose/debug diagnostics.
+
+`sedta`, `seinfoflow`, and `sechecker` remain scaffolds. See [the progress
+document](docs/RUST_REWRITE_PROGRESS.md) for details.
 
 ## Requirements
 
@@ -46,13 +54,13 @@ cargo build --workspace
 Build the implemented command binaries:
 
 ```bash
-cargo build -p setools-cli --bin sesearch --bin seinfo
+cargo build -p setools-cli --bin sesearch --bin seinfo --bin sediff
 ```
 
 Build an optimized binary:
 
 ```bash
-cargo build --release -p setools-cli --bin sesearch --bin seinfo
+cargo build --release -p setools-cli --bin sesearch --bin seinfo --bin sediff
 ```
 
 Cargo uses its standard output layout:
@@ -60,14 +68,16 @@ Cargo uses its standard output layout:
 ```text
 target/debug/sesearch
 target/debug/seinfo
+target/debug/sediff
 target/release/sesearch
 target/release/seinfo
+target/release/sediff
 ```
 
 Install from a checkout with:
 
 ```bash
-cargo install --path crates/setools-cli --bin sesearch --bin seinfo
+cargo install --path crates/setools-cli --bin sesearch --bin seinfo --bin sediff
 ```
 
 Example usage:
@@ -75,6 +85,8 @@ Example usage:
 ```bash
 target/release/sesearch --allow -s sshd_t -t shadow_t /path/to/policy
 target/release/seinfo --type sshd_t --expand /path/to/policy
+target/release/sediff old.policy new.policy
+target/release/sediff --allow --allowxperm --stats old.policy new.policy
 ```
 
 If the policy argument is omitted, `sesearch` and `seinfo` first try the current

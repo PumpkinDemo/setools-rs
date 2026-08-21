@@ -41,7 +41,15 @@ CLI 兼容目标是 SETools 4.7.1。新格式或 API 只能作为附加能力引
   pointer 不离开 loader。
 - 产品仓库包含独立 SELinux/Xen synthetic policy fixtures 和 Rust integration tests。
   开发工作区的 legacy 差分矩阵当前 37 个 case 全部逐字节通过，但不属于产品依赖。
-- 当前主线进入 M4 `sediff`；`sedta`、`seinfoflow`、`sechecker` 仍是 scaffold。
+- M4 `sediff` 已完成：全部 symbol/property/default/bounds、TE/xperm、RBAC、MLS、
+  constraint 和 SELinux labeling component 均支持 added/removed/modified semantic diff，
+  同时支持显式 selection、`-A`、`-T`、`--stats` 和无 component 参数的全量模式。
+- `setools-diff` 的跨 policy key 只使用 canonical name/semantic value，不比较 numeric
+  ID；AV diff 会展开 attribute、合并重复 grant，并扣除已由无条件规则覆盖的 conditional
+  permission。产品仓库有独立双策略 fixture 和 integration tests。
+- 外层开发工作区的 `sesearch` 64-case、`seinfo` 37-case、`sediff` 64-case legacy
+  matrix 均逐字节通过，但它们不属于产品依赖。
+- 当前主线进入 M5：实现 `sedta` 与 `seinfoflow`；`sechecker` 仍是 scaffold。
 
 常用验证命令：
 
@@ -49,7 +57,7 @@ CLI 兼容目标是 SETools 4.7.1。新格式或 API 只能作为附加能力引
 cargo fmt --all --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
-cargo build --release -p setools-cli --bin sesearch --bin seinfo
+cargo build --release -p setools-cli --bin sesearch --bin seinfo --bin sediff
 ```
 
 ## 不可破坏的设计约束

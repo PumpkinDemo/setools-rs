@@ -10,7 +10,7 @@
 extern "C" {
 #endif
 
-#define ST_BRIDGE_ABI_VERSION 4U
+#define ST_BRIDGE_ABI_VERSION 5U
 
 typedef struct st_policy st_policy;
 
@@ -293,6 +293,10 @@ uint32_t st_policy_sensitivity_alias_count(const st_policy *policy,
 int32_t st_policy_sensitivity_alias_get(const st_policy *policy,
                                         uint32_t sensitivity, uint32_t index,
                                         st_string_view *name, st_error *error);
+
+int32_t st_policy_sensitivity_categories_get(
+    const st_policy *policy, uint32_t sensitivity, uint32_t *categories,
+    size_t capacity, size_t *count, st_error *error);
 
 uint32_t st_policy_category_count(const st_policy *policy);
 
