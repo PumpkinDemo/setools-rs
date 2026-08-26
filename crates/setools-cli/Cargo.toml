@@ -9,6 +9,7 @@ license = "GPL-2.0-only"
 publish = false
 
 [dependencies]
+setools-checker = { path = "../setools-checker" }
 setools-diff = { path = "../setools-diff" }
 setools-graph = { path = "../setools-graph" }
 setools-policy = { path = "../setools-policy" }

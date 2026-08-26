@@ -1,4 +1,6 @@
-//! `seinfo` argument parsing, component queries, and compatibility rendering.
+//! `seinfo` argument parsing, component queries, and text/versioned JSON rendering.
+
+use crate::json;
 
 use setools_policy::{
     Boolean, Category, ConstraintExpressionToken, ConstraintKind, ConstraintOperator,
@@ -85,6 +87,7 @@ struct Options {
     flat: bool,
     verbose: bool,
     debug: bool,
+    json: bool,
 }
 
 impl Options {
@@ -166,8 +169,43 @@ enum ParseAction {
 }
 
 struct Section {
+    component: &'static str,
     description: &'static str,
     items: Vec<String>,
+}
+
+#[derive(Clone, Copy)]
+struct SectionIdentity {
+    component: &'static str,
+    description: &'static str,
+}
+
+impl SectionIdentity {
+    const fn new(component: &'static str, description: &'static str) -> Self {
+        Self {
+            component,
+            description,
+        }
+    }
+}
+
+struct Statistic {
+    key: &'static str,
+    label: &'static str,
+    value: usize,
+}
+
+struct StatisticRow {
+    left: Statistic,
+    right: Statistic,
+}
+
+struct Statistics {
+    policy_version: u32,
+    mls: bool,
+    target: &'static str,
+    handle_unknown: &'static str,
+    rows: Vec<StatisticRow>,
 }
 
 enum BuildError {
@@ -229,8 +267,20 @@ pub(crate) fn run(arguments: Vec<OsString>) -> ExitCode {
         Err(BuildError::Analysis(message)) => return analysis_error(&message),
     };
     let statistics = ((!options.has_component_query() || options.all) && !options.flat)
-        .then(|| render_statistics(&policy, &policy_path));
-    render_output(statistics.as_deref(), &sections, options.flat)
+        .then(|| collect_statistics(&policy));
+    if options.json {
+        write_stdout(&render_json(
+            &options,
+            &policy_path,
+            statistics.as_ref(),
+            &sections,
+        ))
+    } else {
+        let statistics = statistics
+            .as_ref()
+            .map(|statistics| render_statistics(statistics, &policy_path));
+        render_output(statistics.as_deref(), &sections, options.flat)
+    }
 }
 
 fn build_sections(
@@ -249,6 +299,7 @@ fn build_sections(
         let mut results = query.results().collect::<Vec<_>>();
         results.sort_unstable_by(|left, right| left.name().cmp(right.name()));
         sections.push(Section {
+            component: "boolean",
             description: "Booleans",
             items: results
                 .into_iter()
@@ -260,6 +311,7 @@ fn build_sections(
         log_query(options, "setools.categoryquery", "category", policy_path);
         let name = selection.name();
         sections.push(Section {
+            component: "category",
             description: "Categories",
             items: policy
                 .categories()
@@ -283,6 +335,7 @@ fn build_sections(
         let mut results = query.results().collect::<Vec<_>>();
         results.sort_unstable_by(|left, right| left.name().cmp(right.name()));
         sections.push(Section {
+            component: "class",
             description: "Classes",
             items: results
                 .into_iter()
@@ -311,6 +364,7 @@ fn build_sections(
             .collect::<Vec<_>>();
         items.sort_unstable();
         sections.push(Section {
+            component: "common",
             description: "Commons",
             items,
         });
@@ -323,7 +377,13 @@ fn build_sections(
             policy_path,
         );
         validate_class_selection(policy, selection)?;
-        sections.push(constraint_section(policy, selection, false, "Constraints"));
+        sections.push(constraint_section(
+            policy,
+            selection,
+            false,
+            "constraint",
+            "Constraints",
+        ));
     }
     if let Some(selection) = selected(&options.default_rule, options.all) {
         log_query(options, "setools.defaultquery", "default_*", policy_path);
@@ -337,6 +397,7 @@ fn build_sections(
             .collect::<Vec<_>>();
         items.sort_unstable();
         sections.push(Section {
+            component: "default",
             description: "Default rules",
             items,
         });
@@ -351,6 +412,7 @@ fn build_sections(
             .collect::<Vec<_>>();
         results.sort_unstable_by(|left, right| left.name().cmp(right.name()));
         sections.push(Section {
+            component: "permissive",
             description: "Permissive Types",
             items: results
                 .into_iter()
@@ -380,6 +442,7 @@ fn build_sections(
             .collect::<Vec<_>>();
         items.sort_unstable();
         sections.push(Section {
+            component: "polcap",
             description: "Polcap",
             items,
         });
@@ -393,6 +456,7 @@ fn build_sections(
         let mut results = query.results().collect::<Vec<_>>();
         results.sort_unstable_by(|left, right| left.name().cmp(right.name()));
         sections.push(Section {
+            component: "role",
             description: "Roles",
             items: results
                 .into_iter()
@@ -416,6 +480,7 @@ fn build_sections(
             .collect::<Vec<_>>();
         items.sort_unstable();
         sections.push(Section {
+            component: "role_types",
             description: "Roles",
             items,
         });
@@ -429,6 +494,7 @@ fn build_sections(
         );
         let name = selection.name();
         sections.push(Section {
+            component: "sensitivity",
             description: "Sensitivities",
             items: policy
                 .sensitivities()
@@ -453,6 +519,7 @@ fn build_sections(
             .collect::<Vec<_>>();
         items.sort_unstable();
         sections.push(Section {
+            component: "typebounds",
             description: "Typebounds",
             items,
         });
@@ -471,6 +538,7 @@ fn build_sections(
         let mut results = query.results().collect::<Vec<_>>();
         results.sort_unstable_by(|left, right| left.name().cmp(right.name()));
         sections.push(Section {
+            component: "type",
             description: "Types",
             items: results
                 .into_iter()
@@ -492,6 +560,7 @@ fn build_sections(
         let mut results = query.results().collect::<Vec<_>>();
         results.sort_unstable_by(|left, right| left.name().cmp(right.name()));
         sections.push(Section {
+            component: "attribute",
             description: "Type Attributes",
             items: results
                 .into_iter()
@@ -510,6 +579,7 @@ fn build_sections(
             .collect::<Vec<_>>();
         items.sort_unstable();
         sections.push(Section {
+            component: "user",
             description: "Users",
             items,
         });
@@ -522,7 +592,13 @@ fn build_sections(
             policy_path,
         );
         validate_class_selection(policy, selection)?;
-        sections.push(constraint_section(policy, selection, true, "Validatetrans"));
+        sections.push(constraint_section(
+            policy,
+            selection,
+            true,
+            "validatetrans",
+            "Validatetrans",
+        ));
     }
 
     match policy.metadata().target {
@@ -546,7 +622,7 @@ fn build_selinux_sections(
             options,
             policy_path,
             sections,
-            "Fs_use",
+            SectionIdentity::new("fs_use", "Fs_use"),
             "fs_use_*",
             |rule| matches!(rule, LabelingRule::FsUse { filesystem, .. } if name_matches(filesystem, selection.name())),
         );
@@ -557,7 +633,7 @@ fn build_selinux_sections(
             options,
             policy_path,
             sections,
-            "Genfscon",
+            SectionIdentity::new("genfscon", "Genfscon"),
             "genfscon",
             |rule| matches!(rule, LabelingRule::Genfscon { filesystem, .. } if name_matches(filesystem, selection.name())),
         );
@@ -568,7 +644,7 @@ fn build_selinux_sections(
             options,
             policy_path,
             sections,
-            "Ibendportcon",
+            SectionIdentity::new("ibendportcon", "Ibendportcon"),
             "ibendportcon",
             |rule| matches!(rule, LabelingRule::Ibendportcon { device, .. } if name_matches(device, selection.name())),
         );
@@ -580,7 +656,7 @@ fn build_selinux_sections(
             options,
             policy_path,
             sections,
-            "Ibpkeycon",
+            SectionIdentity::new("ibpkeycon", "Ibpkeycon"),
             "ibpkeycon",
             |rule| matches!(rule, LabelingRule::Ibpkeycon { low, high, .. } if range.is_none_or(|(query_low, query_high)| *low == query_low && *high == query_high)),
         );
@@ -611,6 +687,7 @@ fn build_selinux_sections(
             .collect::<Vec<_>>();
         items.sort_unstable();
         sections.push(Section {
+            component: "initialsid",
             description: "Initial SIDs",
             items,
         });
@@ -621,7 +698,7 @@ fn build_selinux_sections(
             options,
             policy_path,
             sections,
-            "Netifcon",
+            SectionIdentity::new("netifcon", "Netifcon"),
             "netifcon",
             |rule| matches!(rule, LabelingRule::Netifcon { interface, .. } if name_matches(interface, selection.name())),
         );
@@ -633,7 +710,7 @@ fn build_selinux_sections(
             options,
             policy_path,
             sections,
-            "Nodecon",
+            SectionIdentity::new("nodecon", "Nodecon"),
             "nodecon",
             |rule| matches!(rule, LabelingRule::Nodecon { address, mask, .. } if network.as_ref().is_none_or(|query| network_from_address_mask(*address, *mask) == *query)),
         );
@@ -645,7 +722,7 @@ fn build_selinux_sections(
             options,
             policy_path,
             sections,
-            "Portcon",
+            SectionIdentity::new("portcon", "Portcon"),
             "portcon",
             |rule| matches!(rule, LabelingRule::Portcon { low, high, .. } if range.is_none_or(|(query_low, query_high)| *low <= query_low && query_high <= *high)),
         );
@@ -665,7 +742,7 @@ fn build_xen_sections(
             options,
             policy_path,
             sections,
-            "Devicetreecon",
+            SectionIdentity::new("devicetreecon", "Devicetreecon"),
             "",
             |rule| matches!(rule, LabelingRule::Devicetreecon { path, .. } if name_matches(path, selection.name())),
         );
@@ -677,7 +754,7 @@ fn build_xen_sections(
             options,
             policy_path,
             sections,
-            "Iomemcon",
+            SectionIdentity::new("iomemcon", "Iomemcon"),
             "",
             |rule| matches!(rule, LabelingRule::Iomemcon { low, high, .. } if range.is_none_or(|(query_low, query_high)| *low == query_low && *high == query_high)),
         );
@@ -689,7 +766,7 @@ fn build_xen_sections(
             options,
             policy_path,
             sections,
-            "Ioportcon",
+            SectionIdentity::new("ioportcon", "Ioportcon"),
             "",
             |rule| matches!(rule, LabelingRule::Ioportcon { low, high, .. } if range.is_none_or(|(query_low, query_high)| *low <= query_low && query_high <= *high)),
         );
@@ -711,7 +788,7 @@ fn build_xen_sections(
             options,
             policy_path,
             sections,
-            "Pcidevicecon",
+            SectionIdentity::new("pcidevicecon", "Pcidevicecon"),
             "",
             |rule| matches!(rule, LabelingRule::Pcidevicecon { device: value, .. } if device.is_none_or(|device| i128::from(*value) == device)),
         );
@@ -733,7 +810,7 @@ fn build_xen_sections(
             options,
             policy_path,
             sections,
-            "Pirqcon",
+            SectionIdentity::new("pirqcon", "Pirqcon"),
             "",
             |rule| matches!(rule, LabelingRule::Pirqcon { irq: value, .. } if irq.is_none_or(|irq| i128::from(*value) == irq)),
         );
@@ -746,7 +823,7 @@ fn push_labeling_section(
     options: &Options,
     policy_path: &Path,
     sections: &mut Vec<Section>,
-    description: &'static str,
+    identity: SectionIdentity,
     query_name: &str,
     predicate: impl Fn(&LabelingRule) -> bool,
 ) {
@@ -759,7 +836,11 @@ fn push_labeling_section(
         .map(|rule| render_labeling(policy, rule))
         .collect::<Vec<_>>();
     items.sort_unstable();
-    sections.push(Section { description, items });
+    sections.push(Section {
+        component: identity.component,
+        description: identity.description,
+        items,
+    });
 }
 
 fn selected(selection: &Option<Selection>, all: bool) -> Option<&Selection> {
@@ -771,6 +852,7 @@ fn constraint_section(
     policy: &Policy,
     selection: &Selection,
     validate_transition: bool,
+    component: &'static str,
     description: &'static str,
 ) -> Section {
     let mut items = policy
@@ -782,7 +864,11 @@ fn constraint_section(
         .map(|rule| render_constraint(policy, rule))
         .collect::<Vec<_>>();
     items.sort_unstable();
-    Section { description, items }
+    Section {
+        component,
+        description,
+        items,
+    }
 }
 
 fn parse(arguments: Vec<OsString>) -> Result<ParseAction, String> {
@@ -817,6 +903,7 @@ fn parse(arguments: Vec<OsString>) -> Result<ParseAction, String> {
             "--flat" => options.flat = true,
             "-v" | "--verbose" => options.verbose = true,
             "--debug" => options.debug = true,
+            "--json" => options.json = true,
             "--all" => options.all = true,
             "--role_types" => {
                 options.role_types = Some(take_value(&arguments, &mut index, argument)?)
@@ -1546,7 +1633,7 @@ fn render_level(policy: &Policy, level: &MlsLevel) -> String {
     value
 }
 
-fn render_statistics(policy: &Policy, path: &Path) -> String {
+fn collect_statistics(policy: &Policy) -> Statistics {
     let metadata = policy.metadata();
     let type_count = policy
         .type_symbols()
@@ -1595,202 +1682,276 @@ fn render_statistics(policy: &Policy, path: &Path) -> String {
             .filter(|rule| predicate(rule))
             .count()
     };
+    let mut rows = vec![
+        statistic_row(
+            "classes",
+            "Classes:",
+            policy.object_classes().len(),
+            "permissions",
+            "Permissions:",
+            permission_count,
+        ),
+        statistic_row(
+            "sensitivities",
+            "Sensitivities:",
+            policy.sensitivities().len(),
+            "categories",
+            "Categories:",
+            policy.categories().len(),
+        ),
+        statistic_row(
+            "types",
+            "Types:",
+            type_count,
+            "attributes",
+            "Attributes:",
+            attribute_count,
+        ),
+        statistic_row(
+            "users",
+            "Users:",
+            policy.seinfo().users().len(),
+            "roles",
+            "Roles:",
+            policy.roles().len(),
+        ),
+        statistic_row(
+            "booleans",
+            "Booleans:",
+            policy.booleans().len(),
+            "conditional_expressions",
+            "Cond. Expr.:",
+            policy.conditionals().len(),
+        ),
+        statistic_row(
+            "allow",
+            "Allow:",
+            te_count(TeRuleKind::Allow),
+            "neverallow",
+            "Neverallow:",
+            0,
+        ),
+        statistic_row(
+            "auditallow",
+            "Auditallow:",
+            te_count(TeRuleKind::AuditAllow),
+            "dontaudit",
+            "Dontaudit:",
+            te_count(TeRuleKind::DontAudit),
+        ),
+        statistic_row(
+            "type_transition",
+            "Type_trans:",
+            te_count(TeRuleKind::TypeTransition),
+            "type_change",
+            "Type_change:",
+            te_count(TeRuleKind::TypeChange),
+        ),
+        statistic_row(
+            "type_member",
+            "Type_member:",
+            te_count(TeRuleKind::TypeMember),
+            "range_transition",
+            "Range_trans:",
+            policy.mls_rules().len(),
+        ),
+        statistic_row(
+            "role_allow",
+            "Role allow:",
+            rbac_count(RbacRuleKind::Allow),
+            "role_transition",
+            "Role_trans:",
+            rbac_count(RbacRuleKind::RoleTransition),
+        ),
+        statistic_row(
+            "constraints",
+            "Constraints:",
+            constraint_count(ConstraintKind::Constrain),
+            "validatetrans",
+            "Validatetrans:",
+            constraint_count(ConstraintKind::ValidateTransition),
+        ),
+        statistic_row(
+            "mls_constraints",
+            "MLS Constrain:",
+            constraint_count(ConstraintKind::MlsConstrain),
+            "mls_validatetrans",
+            "MLS Val. Tran:",
+            constraint_count(ConstraintKind::MlsValidateTransition),
+        ),
+        statistic_row(
+            "permissive_types",
+            "Permissives:",
+            policy
+                .type_symbols()
+                .iter()
+                .filter(|value| value.is_permissive())
+                .count(),
+            "policy_capabilities",
+            "Polcap:",
+            policy.seinfo().policy_capabilities().len(),
+        ),
+        statistic_row(
+            "default_rules",
+            "Defaults:",
+            policy.seinfo().defaults().len(),
+            "typebounds",
+            "Typebounds:",
+            policy
+                .type_symbols()
+                .iter()
+                .filter(|value| value.bound().is_some())
+                .count(),
+        ),
+    ];
+    match metadata.target {
+        TargetPlatform::Selinux => {
+            rows.extend([
+                statistic_row(
+                    "allowxperm",
+                    "Allowxperm:",
+                    te_count(TeRuleKind::AllowXperm),
+                    "neverallowxperm",
+                    "Neverallowxperm:",
+                    0,
+                ),
+                statistic_row(
+                    "auditallowxperm",
+                    "Auditallowxperm:",
+                    te_count(TeRuleKind::AuditAllowXperm),
+                    "dontauditxperm",
+                    "Dontauditxperm:",
+                    te_count(TeRuleKind::DontAuditXperm),
+                ),
+                statistic_row(
+                    "ibendportcon",
+                    "Ibendportcon:",
+                    label_count(|rule| matches!(rule, LabelingRule::Ibendportcon { .. })),
+                    "ibpkeycon",
+                    "Ibpkeycon:",
+                    label_count(|rule| matches!(rule, LabelingRule::Ibpkeycon { .. })),
+                ),
+                statistic_row(
+                    "initial_sids",
+                    "Initial SIDs:",
+                    label_count(|rule| matches!(rule, LabelingRule::InitialSid { .. })),
+                    "fs_use",
+                    "Fs_use:",
+                    label_count(|rule| matches!(rule, LabelingRule::FsUse { .. })),
+                ),
+                statistic_row(
+                    "genfscon",
+                    "Genfscon:",
+                    label_count(|rule| matches!(rule, LabelingRule::Genfscon { .. })),
+                    "portcon",
+                    "Portcon:",
+                    label_count(|rule| matches!(rule, LabelingRule::Portcon { .. })),
+                ),
+                statistic_row(
+                    "netifcon",
+                    "Netifcon:",
+                    label_count(|rule| matches!(rule, LabelingRule::Netifcon { .. })),
+                    "nodecon",
+                    "Nodecon:",
+                    label_count(|rule| matches!(rule, LabelingRule::Nodecon { .. })),
+                ),
+            ]);
+        }
+        TargetPlatform::Xen => {
+            rows.extend([
+                statistic_row(
+                    "initial_sids",
+                    "Initial SIDs:",
+                    label_count(|rule| matches!(rule, LabelingRule::InitialSid { .. })),
+                    "devicetreecon",
+                    "Devicetreecon:",
+                    label_count(|rule| matches!(rule, LabelingRule::Devicetreecon { .. })),
+                ),
+                statistic_row(
+                    "iomemcon",
+                    "Iomemcon:",
+                    label_count(|rule| matches!(rule, LabelingRule::Iomemcon { .. })),
+                    "ioportcon",
+                    "Ioportcon:",
+                    label_count(|rule| matches!(rule, LabelingRule::Ioportcon { .. })),
+                ),
+                statistic_row(
+                    "pcidevicecon",
+                    "Pcidevicecon:",
+                    label_count(|rule| matches!(rule, LabelingRule::Pcidevicecon { .. })),
+                    "pirqcon",
+                    "Pirqcon:",
+                    label_count(|rule| matches!(rule, LabelingRule::Pirqcon { .. })),
+                ),
+            ]);
+        }
+    }
+    Statistics {
+        policy_version: metadata.version,
+        mls: metadata.mls,
+        target: match metadata.target {
+            TargetPlatform::Selinux => "selinux",
+            TargetPlatform::Xen => "xen",
+        },
+        handle_unknown: match metadata.handle_unknown {
+            HandleUnknown::Deny => "deny",
+            HandleUnknown::Reject => "reject",
+            HandleUnknown::Allow => "allow",
+        },
+        rows,
+    }
+}
+
+const fn statistic_row(
+    left_key: &'static str,
+    left_label: &'static str,
+    left_value: usize,
+    right_key: &'static str,
+    right_label: &'static str,
+    right_value: usize,
+) -> StatisticRow {
+    StatisticRow {
+        left: Statistic {
+            key: left_key,
+            label: left_label,
+            value: left_value,
+        },
+        right: Statistic {
+            key: right_key,
+            label: right_label,
+            value: right_value,
+        },
+    }
+}
+
+fn render_statistics(statistics: &Statistics, path: &Path) -> String {
     let mut output = String::new();
     output.push_str(&format!("Statistics for policy file: {}\n", path.display()));
     output.push_str(&format!(
         "Policy Version:             {} (MLS {})\n",
-        metadata.version,
-        if metadata.mls { "enabled" } else { "disabled" }
+        statistics.policy_version,
+        if statistics.mls {
+            "enabled"
+        } else {
+            "disabled"
+        }
     ));
     output.push_str(&format!(
         "Target Policy:              {}\n",
-        match metadata.target {
-            TargetPlatform::Selinux => "selinux",
-            TargetPlatform::Xen => "xen",
-        }
+        statistics.target
     ));
     output.push_str(&format!(
         "Handle unknown classes:     {}\n",
-        match metadata.handle_unknown {
-            HandleUnknown::Deny => "deny",
-            HandleUnknown::Reject => "reject",
-            HandleUnknown::Allow => "allow",
-        }
+        statistics.handle_unknown
     ));
-    stats_line(
-        &mut output,
-        "Classes:",
-        policy.object_classes().len(),
-        "Permissions:",
-        permission_count,
-    );
-    stats_line(
-        &mut output,
-        "Sensitivities:",
-        policy.sensitivities().len(),
-        "Categories:",
-        policy.categories().len(),
-    );
-    stats_line(
-        &mut output,
-        "Types:",
-        type_count,
-        "Attributes:",
-        attribute_count,
-    );
-    stats_line(
-        &mut output,
-        "Users:",
-        policy.seinfo().users().len(),
-        "Roles:",
-        policy.roles().len(),
-    );
-    stats_line(
-        &mut output,
-        "Booleans:",
-        policy.booleans().len(),
-        "Cond. Expr.:",
-        policy.conditionals().len(),
-    );
-    stats_line(
-        &mut output,
-        "Allow:",
-        te_count(TeRuleKind::Allow),
-        "Neverallow:",
-        0,
-    );
-    stats_line(
-        &mut output,
-        "Auditallow:",
-        te_count(TeRuleKind::AuditAllow),
-        "Dontaudit:",
-        te_count(TeRuleKind::DontAudit),
-    );
-    stats_line(
-        &mut output,
-        "Type_trans:",
-        te_count(TeRuleKind::TypeTransition),
-        "Type_change:",
-        te_count(TeRuleKind::TypeChange),
-    );
-    stats_line(
-        &mut output,
-        "Type_member:",
-        te_count(TeRuleKind::TypeMember),
-        "Range_trans:",
-        policy.mls_rules().len(),
-    );
-    stats_line(
-        &mut output,
-        "Role allow:",
-        rbac_count(RbacRuleKind::Allow),
-        "Role_trans:",
-        rbac_count(RbacRuleKind::RoleTransition),
-    );
-    stats_line(
-        &mut output,
-        "Constraints:",
-        constraint_count(ConstraintKind::Constrain),
-        "Validatetrans:",
-        constraint_count(ConstraintKind::ValidateTransition),
-    );
-    stats_line(
-        &mut output,
-        "MLS Constrain:",
-        constraint_count(ConstraintKind::MlsConstrain),
-        "MLS Val. Tran:",
-        constraint_count(ConstraintKind::MlsValidateTransition),
-    );
-    stats_line(
-        &mut output,
-        "Permissives:",
-        policy
-            .type_symbols()
-            .iter()
-            .filter(|value| value.is_permissive())
-            .count(),
-        "Polcap:",
-        policy.seinfo().policy_capabilities().len(),
-    );
-    stats_line(
-        &mut output,
-        "Defaults:",
-        policy.seinfo().defaults().len(),
-        "Typebounds:",
-        policy
-            .type_symbols()
-            .iter()
-            .filter(|value| value.bound().is_some())
-            .count(),
-    );
-    match metadata.target {
-        TargetPlatform::Selinux => {
-            stats_line(
-                &mut output,
-                "Allowxperm:",
-                te_count(TeRuleKind::AllowXperm),
-                "Neverallowxperm:",
-                0,
-            );
-            stats_line(
-                &mut output,
-                "Auditallowxperm:",
-                te_count(TeRuleKind::AuditAllowXperm),
-                "Dontauditxperm:",
-                te_count(TeRuleKind::DontAuditXperm),
-            );
-            stats_line(
-                &mut output,
-                "Ibendportcon:",
-                label_count(|rule| matches!(rule, LabelingRule::Ibendportcon { .. })),
-                "Ibpkeycon:",
-                label_count(|rule| matches!(rule, LabelingRule::Ibpkeycon { .. })),
-            );
-            stats_line(
-                &mut output,
-                "Initial SIDs:",
-                label_count(|rule| matches!(rule, LabelingRule::InitialSid { .. })),
-                "Fs_use:",
-                label_count(|rule| matches!(rule, LabelingRule::FsUse { .. })),
-            );
-            stats_line(
-                &mut output,
-                "Genfscon:",
-                label_count(|rule| matches!(rule, LabelingRule::Genfscon { .. })),
-                "Portcon:",
-                label_count(|rule| matches!(rule, LabelingRule::Portcon { .. })),
-            );
-            stats_line(
-                &mut output,
-                "Netifcon:",
-                label_count(|rule| matches!(rule, LabelingRule::Netifcon { .. })),
-                "Nodecon:",
-                label_count(|rule| matches!(rule, LabelingRule::Nodecon { .. })),
-            );
-        }
-        TargetPlatform::Xen => {
-            stats_line(
-                &mut output,
-                "Initial SIDs:",
-                label_count(|rule| matches!(rule, LabelingRule::InitialSid { .. })),
-                "Devicetreecon:",
-                label_count(|rule| matches!(rule, LabelingRule::Devicetreecon { .. })),
-            );
-            stats_line(
-                &mut output,
-                "Iomemcon:",
-                label_count(|rule| matches!(rule, LabelingRule::Iomemcon { .. })),
-                "Ioportcon:",
-                label_count(|rule| matches!(rule, LabelingRule::Ioportcon { .. })),
-            );
-            stats_line(
-                &mut output,
-                "Pcidevicecon:",
-                label_count(|rule| matches!(rule, LabelingRule::Pcidevicecon { .. })),
-                "Pirqcon:",
-                label_count(|rule| matches!(rule, LabelingRule::Pirqcon { .. })),
-            );
-        }
+    for row in &statistics.rows {
+        stats_line(
+            &mut output,
+            row.left.label,
+            row.left.value,
+            row.right.label,
+            row.right.value,
+        );
     }
     output
 }
@@ -1799,6 +1960,172 @@ fn stats_line(output: &mut String, left_label: &str, left: usize, right_label: &
     output.push_str(&format!(
         "  {left_label:<17}{left:7}    {right_label:<17}{right:7}\n"
     ));
+}
+
+fn render_json(
+    options: &Options,
+    policy_path: &Path,
+    statistics: Option<&Statistics>,
+    sections: &[Section],
+) -> String {
+    let mut output = String::new();
+    output.push_str(
+        "{\"schema\":\"setools-rs.seinfo\",\"schema_version\":1,\"tool\":{\"name\":\"seinfo\",\"version\":",
+    );
+    json::push_string(&mut output, env!("CARGO_PKG_VERSION"));
+    output.push_str("},\"policy\":{\"path\":");
+    json::push_string(&mut output, &policy_path.to_string_lossy());
+    output.push_str("},\"query\":{\"all\":");
+    output.push_str(json_boolean(options.all));
+    output.push_str(",\"expand\":");
+    output.push_str(json_boolean(options.expand));
+    output.push_str(",\"flat\":");
+    output.push_str(json_boolean(options.flat));
+    output.push_str(",\"components\":[");
+    push_json_query_components(&mut output, options);
+    output.push(']');
+    output.push_str("},\"statistics\":");
+    push_json_statistics(&mut output, statistics);
+    output.push_str(",\"result_count\":");
+    output.push_str(
+        &sections
+            .iter()
+            .map(|section| section.items.len())
+            .sum::<usize>()
+            .to_string(),
+    );
+    output.push_str(",\"results\":[");
+    for (section_index, section) in sections.iter().enumerate() {
+        if section_index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"component\":");
+        json::push_string(&mut output, section.component);
+        output.push_str(",\"description\":");
+        json::push_string(&mut output, section.description);
+        output.push_str(",\"count\":");
+        output.push_str(&section.items.len().to_string());
+        output.push_str(",\"items\":[");
+        for (item_index, item) in section.items.iter().enumerate() {
+            if item_index > 0 {
+                output.push(',');
+            }
+            json::push_string(&mut output, item);
+        }
+        output.push_str("]}");
+    }
+    output.push_str("]}\n");
+    output
+}
+
+fn push_json_query_components(output: &mut String, options: &Options) {
+    let mut first = true;
+    for (component, selection) in [
+        ("boolean", &options.boolean),
+        ("category", &options.category),
+        ("class", &options.target_class),
+        ("common", &options.common),
+        ("constraint", &options.constrain),
+        ("default", &options.default_rule),
+        ("permissive", &options.permissive),
+        ("polcap", &options.polcap),
+        ("role", &options.role),
+    ] {
+        push_json_selection(output, &mut first, component, selection);
+    }
+    if let Some(criterion) = options.role_types.as_deref() {
+        push_json_query_component(output, &mut first, "role_types", Some(criterion));
+    }
+    for (component, selection) in [
+        ("sensitivity", &options.sensitivity),
+        ("typebounds", &options.typebounds),
+        ("type", &options.target_type),
+        ("attribute", &options.attribute),
+        ("user", &options.user),
+        ("validatetrans", &options.validatetrans),
+        ("fs_use", &options.fs_use),
+        ("genfscon", &options.genfscon),
+        ("ibendportcon", &options.ibendportcon),
+        ("ibpkeycon", &options.ibpkeycon),
+        ("initialsid", &options.initialsid),
+        ("netifcon", &options.netifcon),
+        ("nodecon", &options.nodecon),
+        ("portcon", &options.portcon),
+        ("devicetreecon", &options.devicetreecon),
+        ("iomemcon", &options.iomemcon),
+        ("ioportcon", &options.ioportcon),
+        ("pcidevicecon", &options.pcidevicecon),
+        ("pirqcon", &options.pirqcon),
+    ] {
+        push_json_selection(output, &mut first, component, selection);
+    }
+}
+
+fn push_json_selection(
+    output: &mut String,
+    first: &mut bool,
+    component: &str,
+    selection: &Option<Selection>,
+) {
+    if let Some(selection) = selection {
+        push_json_query_component(output, first, component, selection.name());
+    }
+}
+
+fn push_json_query_component(
+    output: &mut String,
+    first: &mut bool,
+    component: &str,
+    criterion: Option<&str>,
+) {
+    if !*first {
+        output.push(',');
+    }
+    *first = false;
+    output.push_str("{\"component\":");
+    json::push_string(output, component);
+    output.push_str(",\"criterion\":");
+    if let Some(criterion) = criterion {
+        json::push_string(output, criterion);
+    } else {
+        output.push_str("null");
+    }
+    output.push('}');
+}
+
+fn push_json_statistics(output: &mut String, statistics: Option<&Statistics>) {
+    let Some(statistics) = statistics else {
+        output.push_str("null");
+        return;
+    };
+    output.push_str("{\"policy_version\":");
+    output.push_str(&statistics.policy_version.to_string());
+    output.push_str(",\"mls\":");
+    output.push_str(json_boolean(statistics.mls));
+    output.push_str(",\"target\":");
+    json::push_string(output, statistics.target);
+    output.push_str(",\"handle_unknown\":");
+    json::push_string(output, statistics.handle_unknown);
+    output.push_str(",\"counts\":{");
+    let mut first = true;
+    for statistic in statistics
+        .rows
+        .iter()
+        .flat_map(|row| [&row.left, &row.right])
+    {
+        if !first {
+            output.push(',');
+        }
+        first = false;
+        json::push_string(output, statistic.key);
+        output.push(':');
+        output.push_str(&statistic.value.to_string());
+    }
+    output.push_str("}}");
+}
+
+const fn json_boolean(value: bool) -> &'static str {
+    if value { "true" } else { "false" }
 }
 
 fn render_output(statistics: Option<&str>, sections: &[Section], flat: bool) -> ExitCode {
@@ -2163,5 +2490,20 @@ mod tests {
             panic!("expected query action");
         };
         assert_eq!(options.boolean, Some(Selection::All));
+    }
+
+    #[test]
+    fn parses_json_as_an_additive_output_mode() {
+        let ParseAction::Run(options) =
+            parse(args(&["--json", "--type", "example_t", "policy.35"]))
+                .expect("arguments must parse")
+        else {
+            panic!("expected query action");
+        };
+        assert!(options.json);
+        assert_eq!(
+            options.target_type,
+            Some(Selection::Named("example_t".to_owned()))
+        );
     }
 }

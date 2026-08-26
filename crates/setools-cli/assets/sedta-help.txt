@@ -1,0 +1,35 @@
+usage: sedta [-h] [--version] [-p POLICY] -s SOURCE [-t TARGET] [--full]
+             [--stats] [-v] [--debug] [-S] [-A MAX_STEPS] [-r]
+             [-l LIMIT_TRANS] [-o OUTPUT_FILE]
+             [exclude ...]
+
+SELinux policy domain transition analysis tool.
+
+options:
+  -h, --help            show this help message and exit
+  --version             show program's version number and exit
+  -p, --policy POLICY   Path to SELinux policy to analyze.
+  -s, --source SOURCE   Source type of the analysis.
+  -t, --target TARGET   Target type of the analysis.
+  --full                Print rule lists for transitions.
+  --stats               Display statistics at the end of the analysis.
+  -v, --verbose         Print extra informational messages
+  --debug               Enable debugging.
+
+Analysis algorithm:
+  -S, --shortest_path   Calculate all shortest paths.
+  -A, --all_paths MAX_STEPS
+                        Calculate all paths, with the specified maximum path
+                        length. (Expensive)
+
+Analysis options:
+  -r, --reverse         Perform a reverse DTA.
+  -l, --limit_trans LIMIT_TRANS
+                        Limit to the specified number of transitions. Default
+                        is unlimited.
+  -o, --output_file OUTPUT_FILE
+                        Output file for graphical results, PNG format.
+  exclude               List of excluded types in the analysis.
+
+If no analysis is selected, all forward transitions out of the source will be
+printed.

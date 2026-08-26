@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/setools-checker",
     "crates/setools-cli",
     "crates/setools-diff",
     "crates/setools-graph",

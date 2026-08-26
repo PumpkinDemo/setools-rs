@@ -1,5 +1,6 @@
-//! `sesearch` argument parsing and compatibility text rendering.
+//! `sesearch` argument parsing and compatibility text/versioned JSON rendering.
 
+use crate::json;
 use setools_policy::{
     ConditionalToken, MlsRule, Policy, PolicyLoader, RbacRule, RbacRuleData, RbacRuleKind, TeRule,
     TeRuleData, TeRuleKind, TypeOrAttributeId,
@@ -53,6 +54,7 @@ struct Options {
     boolean_regex: bool,
     verbose: bool,
     debug: bool,
+    json: bool,
 }
 
 impl Options {
@@ -77,6 +79,23 @@ enum ParseAction {
     Run(Box<Options>),
     Help,
     Version,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct SearchResult {
+    family: &'static str,
+    rule_type: &'static str,
+    statement: String,
+}
+
+impl SearchResult {
+    fn new(family: &'static str, rule_type: &'static str, statement: String) -> Self {
+        Self {
+            family,
+            rule_type,
+            statement,
+        }
+    }
 }
 
 /// Runs `sesearch` with already separated process arguments.
@@ -108,7 +127,7 @@ pub(crate) fn run(arguments: Vec<OsString>) -> ExitCode {
         Ok(loaded) => loaded,
         Err(message) => return analysis_error(&message),
     };
-    let mut statements = Vec::new();
+    let mut results = Vec::new();
     if !options.te_kinds.is_empty() {
         log_message(
             &options,
@@ -121,17 +140,20 @@ pub(crate) fn run(arguments: Vec<OsString>) -> ExitCode {
             Err(error) => return analysis_error(&error.to_string()),
         };
         log_te_query(&options, &policy, &policy_path);
-        let mut results = match query
+        let mut family_results = match query
             .results()
             .into_iter()
-            .map(|rule| render_rule(&policy, rule))
+            .map(|rule| {
+                render_rule(&policy, rule)
+                    .map(|statement| SearchResult::new("te", rule.kind().keyword(), statement))
+            })
             .collect::<Result<Vec<_>, _>>()
         {
-            Ok(statements) => statements,
+            Ok(results) => results,
             Err(message) => return analysis_error(&message),
         };
-        results.sort_unstable();
-        statements.extend(results);
+        family_results.sort_unstable_by(|left, right| left.statement.cmp(&right.statement));
+        results.extend(family_results);
     }
     if options.role_allow || options.role_transition {
         log_message(
@@ -148,17 +170,20 @@ pub(crate) fn run(arguments: Vec<OsString>) -> ExitCode {
             Err(error) => return analysis_error(&error.to_string()),
         };
         log_rbac_query(&options, &policy, &policy_path);
-        let mut results = match query
+        let mut family_results = match query
             .results()
             .into_iter()
-            .map(|rule| render_rbac_rule(&policy, rule))
+            .map(|rule| {
+                render_rbac_rule(&policy, rule)
+                    .map(|statement| SearchResult::new("rbac", rule.kind().keyword(), statement))
+            })
             .collect::<Result<Vec<_>, _>>()
         {
-            Ok(statements) => statements,
+            Ok(results) => results,
             Err(message) => return analysis_error(&message),
         };
-        results.sort_unstable();
-        statements.extend(results);
+        family_results.sort_unstable_by(|left, right| left.statement.cmp(&right.statement));
+        results.extend(family_results);
     }
     if options.range_transition {
         log_message(
@@ -172,23 +197,223 @@ pub(crate) fn run(arguments: Vec<OsString>) -> ExitCode {
             Err(error) => return analysis_error(&error.to_string()),
         };
         log_mls_query(&options, &policy, &policy_path);
-        let mut results = match query
+        let mut family_results = match query
             .results()
             .into_iter()
-            .map(|rule| render_mls_rule(&policy, rule))
+            .map(|rule| {
+                render_mls_rule(&policy, rule)
+                    .map(|statement| SearchResult::new("mls", "range_transition", statement))
+            })
             .collect::<Result<Vec<_>, _>>()
         {
-            Ok(statements) => statements,
+            Ok(results) => results,
             Err(message) => return analysis_error(&message),
         };
-        results.sort_unstable();
-        statements.extend(results);
+        family_results.sort_unstable_by(|left, right| left.statement.cmp(&right.statement));
+        results.extend(family_results);
     }
-    if statements.is_empty() {
+    if options.json {
+        write_stdout(&render_json(&options, &policy_path, &results))
+    } else if results.is_empty() {
         ExitCode::SUCCESS
     } else {
-        write_stdout(&format!("{}\n", statements.join("\n")))
+        write_stdout(&format!(
+            "{}\n",
+            results
+                .iter()
+                .map(|result| result.statement.as_str())
+                .collect::<Vec<_>>()
+                .join("\n")
+        ))
     }
+}
+
+fn render_json(options: &Options, policy_path: &Path, results: &[SearchResult]) -> String {
+    let mut output = String::new();
+    output.push_str(
+        "{\"schema\":\"setools-rs.sesearch\",\"schema_version\":1,\"tool\":{\"name\":\"sesearch\",\"version\":",
+    );
+    json::push_string(&mut output, env!("CARGO_PKG_VERSION"));
+    output.push_str("},\"policy\":{\"path\":");
+    json::push_string(&mut output, &policy_path.to_string_lossy());
+    output.push_str("},\"query\":{\"rule_types\":[");
+    push_json_rule_types(&mut output, options);
+    output.push_str("],\"source\":");
+    push_json_symbol_criterion(
+        &mut output,
+        options.source.as_deref(),
+        options.source_indirect,
+        options.source_regex,
+    );
+    output.push_str(",\"target\":");
+    push_json_symbol_criterion(
+        &mut output,
+        options.target.as_deref(),
+        options.target_indirect,
+        options.target_regex,
+    );
+    output.push_str(",\"class\":");
+    push_json_regex_criterion(
+        &mut output,
+        options.target_class.as_deref(),
+        options.target_class_regex,
+    );
+    output.push_str(",\"permissions\":");
+    push_json_permission_criterion(
+        &mut output,
+        options.permissions.as_deref(),
+        options.permissions_equal,
+        options.permissions_subset,
+    );
+    output.push_str(",\"xpermissions\":");
+    push_json_equal_criterion(
+        &mut output,
+        options.xpermissions.as_deref(),
+        options.xpermissions_equal,
+    );
+    output.push_str(",\"default\":");
+    push_json_regex_criterion(
+        &mut output,
+        options.default_type.as_deref(),
+        options.default_regex,
+    );
+    output.push_str(",\"boolean\":");
+    push_json_boolean_criterion(
+        &mut output,
+        options.boolean.as_deref(),
+        options.boolean_equal,
+        options.boolean_regex,
+    );
+    output.push_str("},\"result_count\":");
+    output.push_str(&results.len().to_string());
+    output.push_str(",\"results\":[");
+    for (index, result) in results.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"family\":");
+        json::push_string(&mut output, result.family);
+        output.push_str(",\"rule_type\":");
+        json::push_string(&mut output, result.rule_type);
+        output.push_str(",\"statement\":");
+        json::push_string(&mut output, &result.statement);
+        output.push('}');
+    }
+    output.push_str("]}\n");
+    output
+}
+
+fn push_json_rule_types(output: &mut String, options: &Options) {
+    let mut first = true;
+    for kind in &options.te_kinds {
+        push_json_rule_type(output, &mut first, "te", kind.keyword());
+    }
+    if options.role_allow {
+        push_json_rule_type(output, &mut first, "rbac", RbacRuleKind::Allow.keyword());
+    }
+    if options.role_transition {
+        push_json_rule_type(
+            output,
+            &mut first,
+            "rbac",
+            RbacRuleKind::RoleTransition.keyword(),
+        );
+    }
+    if options.range_transition {
+        push_json_rule_type(output, &mut first, "mls", "range_transition");
+    }
+}
+
+fn push_json_rule_type(output: &mut String, first: &mut bool, family: &str, rule_type: &str) {
+    if !*first {
+        output.push(',');
+    }
+    *first = false;
+    output.push_str("{\"family\":");
+    json::push_string(output, family);
+    output.push_str(",\"rule_type\":");
+    json::push_string(output, rule_type);
+    output.push('}');
+}
+
+fn push_json_symbol_criterion(
+    output: &mut String,
+    value: Option<&str>,
+    indirect: bool,
+    regex: bool,
+) {
+    let Some(value) = value else {
+        output.push_str("null");
+        return;
+    };
+    output.push_str("{\"value\":");
+    json::push_string(output, value);
+    output.push_str(",\"indirect\":");
+    output.push_str(json_boolean(indirect));
+    output.push_str(",\"regex\":");
+    output.push_str(json_boolean(regex));
+    output.push('}');
+}
+
+fn push_json_regex_criterion(output: &mut String, value: Option<&str>, regex: bool) {
+    let Some(value) = value else {
+        output.push_str("null");
+        return;
+    };
+    output.push_str("{\"value\":");
+    json::push_string(output, value);
+    output.push_str(",\"regex\":");
+    output.push_str(json_boolean(regex));
+    output.push('}');
+}
+
+fn push_json_permission_criterion(
+    output: &mut String,
+    value: Option<&str>,
+    equal: bool,
+    subset: bool,
+) {
+    let Some(value) = value else {
+        output.push_str("null");
+        return;
+    };
+    output.push_str("{\"value\":");
+    json::push_string(output, value);
+    output.push_str(",\"equal\":");
+    output.push_str(json_boolean(equal));
+    output.push_str(",\"subset\":");
+    output.push_str(json_boolean(subset));
+    output.push('}');
+}
+
+fn push_json_equal_criterion(output: &mut String, value: Option<&str>, equal: bool) {
+    let Some(value) = value else {
+        output.push_str("null");
+        return;
+    };
+    output.push_str("{\"value\":");
+    json::push_string(output, value);
+    output.push_str(",\"equal\":");
+    output.push_str(json_boolean(equal));
+    output.push('}');
+}
+
+fn push_json_boolean_criterion(output: &mut String, value: Option<&str>, equal: bool, regex: bool) {
+    let Some(value) = value else {
+        output.push_str("null");
+        return;
+    };
+    output.push_str("{\"value\":");
+    json::push_string(output, value);
+    output.push_str(",\"equal\":");
+    output.push_str(json_boolean(equal));
+    output.push_str(",\"regex\":");
+    output.push_str(json_boolean(regex));
+    output.push('}');
+}
+
+const fn json_boolean(value: bool) -> &'static str {
+    if value { "true" } else { "false" }
 }
 
 fn parse(arguments: Vec<OsString>) -> Result<ParseAction, String> {
@@ -221,6 +446,7 @@ fn parse(arguments: Vec<OsString>) -> Result<ParseAction, String> {
             "--version" => return Ok(ParseAction::Version),
             "-v" | "--verbose" => options.verbose = true,
             "--debug" => options.debug = true,
+            "--json" => options.json = true,
             "-A" => {
                 options.te_kinds.insert(TeRuleKind::Allow);
                 options.te_kinds.insert(TeRuleKind::AllowXperm);
@@ -1004,7 +1230,7 @@ const fn python_bool(value: bool) -> &'static str {
     if value { "True" } else { "False" }
 }
 
-fn render_rule(policy: &Policy, rule: &TeRule) -> Result<String, String> {
+pub(crate) fn render_rule(policy: &Policy, rule: &TeRule) -> Result<String, String> {
     let source = symbol_name(policy, rule.source())?;
     let target = symbol_name(policy, rule.target())?;
     let target_class = policy
@@ -1154,7 +1380,7 @@ fn symbol_name(policy: &Policy, id: TypeOrAttributeId) -> Result<&str, String> {
         .ok_or_else(|| "rule refers to a missing type symbol".to_owned())
 }
 
-fn render_rbac_rule(policy: &Policy, rule: &RbacRule) -> Result<String, String> {
+pub(crate) fn render_rbac_rule(policy: &Policy, rule: &RbacRule) -> Result<String, String> {
     let source = policy
         .role(rule.source())
         .ok_or_else(|| "RBAC rule refers to a missing source role".to_owned())?
@@ -1268,7 +1494,10 @@ impl ExitCodeExt for ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use super::{ParseAction, format_xpermission_range, parse, parse_xpermissions};
+    use super::{
+        Options, ParseAction, SearchResult, format_xpermission_range, parse, parse_xpermissions,
+        render_json,
+    };
     use std::collections::BTreeSet;
     use std::ffi::OsString;
 
@@ -1295,6 +1524,66 @@ mod tests {
             options.policy.as_deref(),
             Some(std::path::Path::new("policy.35"))
         );
+    }
+
+    #[test]
+    fn parses_json_as_an_additive_output_mode() {
+        let ParseAction::Run(options) =
+            parse(args(&["--json", "--allow", "policy.35"])).expect("arguments must parse")
+        else {
+            panic!("expected query action");
+        };
+        assert!(options.json);
+        assert!(
+            options
+                .te_kinds
+                .contains(&setools_policy::TeRuleKind::Allow)
+        );
+    }
+
+    #[test]
+    fn json_query_records_active_criteria_and_escapes_results() {
+        let mut options = Options::new();
+        options.te_kinds.insert(setools_policy::TeRuleKind::Allow);
+        options.source = Some("source.*".to_owned());
+        options.source_indirect = false;
+        options.source_regex = true;
+        options.target = Some("target_t".to_owned());
+        options.target_class = Some("file,dir".to_owned());
+        options.target_class_regex = true;
+        options.permissions = Some("read,write".to_owned());
+        options.permissions_equal = true;
+        options.permissions_subset = true;
+        options.xpermissions = Some("0x0001-0x0002".to_owned());
+        options.xpermissions_equal = true;
+        options.default_type = Some("default.*".to_owned());
+        options.default_regex = true;
+        options.boolean = Some("enabled,debug".to_owned());
+        options.boolean_equal = true;
+        options.boolean_regex = true;
+        let results = [SearchResult::new(
+            "te",
+            "allow",
+            "allow source target:file \"quoted\";\n".to_owned(),
+        )];
+
+        let rendered = render_json(&options, std::path::Path::new("policy\"name"), &results);
+        for expected in [
+            "\"path\":\"policy\\\"name\"",
+            "\"source\":{\"value\":\"source.*\",\"indirect\":false,\"regex\":true}",
+            "\"target\":{\"value\":\"target_t\",\"indirect\":true,\"regex\":false}",
+            "\"class\":{\"value\":\"file,dir\",\"regex\":true}",
+            "\"permissions\":{\"value\":\"read,write\",\"equal\":true,\"subset\":true}",
+            "\"xpermissions\":{\"value\":\"0x0001-0x0002\",\"equal\":true}",
+            "\"default\":{\"value\":\"default.*\",\"regex\":true}",
+            "\"boolean\":{\"value\":\"enabled,debug\",\"equal\":true,\"regex\":true}",
+            "\"statement\":\"allow source target:file \\\"quoted\\\";\\n\"",
+        ] {
+            assert!(
+                rendered.contains(expected),
+                "missing JSON fragment: {expected}"
+            );
+        }
     }
 
     #[test]

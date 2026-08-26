@@ -1,0 +1,45 @@
+usage: seinfoflow [-h] [--full] [--version] [--stats] [-v] [--debug]
+                  [-p POLICY] [-m MAP] -s SOURCE [-t TARGET] [-S]
+                  [-A MAX_STEPS] [-r] [-w MIN_WEIGHT] [-l LIMIT_FLOWS]
+                  [-b BOOLEANS] [-o OUTPUT_FILE]
+                  [exclude ...]
+
+SELinux policy information flow analysis tool.
+
+options:
+  -h, --help            show this help message and exit
+  --full                Print full rule lists for information flows.
+  --version             show program's version number and exit
+  --stats               Display statistics at the end of the analysis.
+  -v, --verbose         Print extra informational messages
+  --debug               Enable debugging.
+
+Analysis settings:
+  -p, --policy POLICY   Path to SELinux policy to analyze.
+  -m, --map MAP         Path to alternative permission map file.
+  -s, --source SOURCE   Source type of the analysis.
+  -t, --target TARGET   Target type of the analysis.
+
+Analysis algorithm:
+  -S, --shortest_path   Calculate all shortest paths.
+  -A, --all_paths MAX_STEPS
+                        Calculate all paths, with the specified maximum path
+                        length. (Expensive)
+
+Analysis options:
+  -r, --reverse         Display information flows into the source type. No
+                        effect if a target type is specified.
+  -w, --min_weight MIN_WEIGHT
+                        Minimum permission weight. Default is 3.
+  -l, --limit_flows LIMIT_FLOWS
+                        Limit to the specified number of flows. Default is
+                        unlimited.
+  -b, --booleans BOOLEANS
+                        Specify the boolean values to use. Options are
+                        default, or "foo:true,bar:false..."
+  -o, --output_file OUTPUT_FILE
+                        Output file for graphical results, PNG format.
+  exclude               List of excluded types in the analysis.
+
+If no analysis is selected, all information flow out of the source will be
+printed.

@@ -1,0 +1,10 @@
+# Synthetic permission map owned by setools-rs.
+1
+
+class channel 6
+read_low r 1
+read_medium r 5
+write_low w 1
+write_high w 10
+bidirectional b 10
+no_flow n 1

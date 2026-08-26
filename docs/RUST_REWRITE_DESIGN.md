@@ -102,6 +102,7 @@ crates/
   setools-query/
   setools-diff/
   setools-graph/
+  setools-checker/
   setools-cli/
     src/
       lib.rs
@@ -160,6 +161,14 @@ tests/
 - Implement domain-transition and information-flow graphs.
 - Reuse `setools-query` rather than interpreting policy records separately.
 - Load permission maps independently of the core policy representation.
+
+`setools-checker`
+
+- Parse and validate the `sechecker` INI registry independently of CLI parsing.
+- Implement typed `empty_typeattr`, TE/RBAC assertion, executable, and kernel
+  module read-only results over the immutable owned policy.
+- Return typed findings and debug traces; do not own report formatting, logging,
+  output files, or process exit behavior.
 
 `setools-cli`
 
@@ -383,7 +392,32 @@ released after it is written, preventing a full-policy diff from retaining all
 detail records at once. Independent component computation may later use
 parallel workers, but collection and rendering must remain deterministic.
 
-## 10. CLI and output compatibility
+## 10. Graph analysis design
+
+`setools-graph` consumes only the immutable owned `Policy`; no libsepol handle,
+pointer, layout, or lifetime crosses into graph analysis. Graph edges remain in
+policy declaration order, with ordered indexes used for lookup, so breadth-first
+and path enumeration are deterministic and compatible with the 4.7.1 tools.
+
+The information-flow permission map is independent runtime semantic data. The
+4.7.1-compatible default map is shipped inside `setools-graph` under its
+LGPL-2.1-only library boundary, while `-m/--map` loads an alternative file.
+Neither path reads a legacy SETools installation or a parent repository.
+
+For information flow, only allow rules contribute. Source and target attributes
+expand to concrete type pairs; `w` permissions create subject-to-object edges,
+`r` permissions create object-to-subject edges, `b` creates both, and `n`/`u`
+create none. Self-edges are discarded. Multiple rules merge on an ordered type
+pair, retain their rule provenance, and use the maximum contributing permission
+weight in each direction.
+
+Queries derive a subgraph by removing excluded types, edges below the minimum
+weight, and optionally rules disabled by a Boolean assignment. A missing Boolean
+criterion retains both conditional branches for compatibility; an empty
+assignment evaluates policy defaults, and named assignments override those
+defaults. Full-graph statistics remain separate from filtered query results.
+
+## 11. CLI and output compatibility
 
 Each executable should have a thin `main` that delegates to shared CLI code.
 Compatibility tests must freeze:
@@ -409,6 +443,16 @@ The compatibility renderer is the default. Structured output is additive and
 must include a schema version. JSON records use stable names and values, not
 internal numeric IDs.
 
+The accepted structured-output contracts are documented in
+[ADR 0002](adr/0002-structured-output-v1.md). `sesearch` and `seinfo` have
+separate normative schemas in [`docs/schema`](schema/): search results use
+family/rule identifiers, while component information uses typed statistics and
+stable section identifiers. Both write one JSON document on success, including
+empty results. Compatibility help, version, error streams, error text, and exit
+status remain unchanged; the additive option is therefore documented outside
+the frozen legacy help text. Each later command receives its own schema
+identifier and result shape under the same envelope/versioning rules.
+
 Suggested process exit policy, subject to verification against every legacy
 tool:
 
@@ -418,7 +462,7 @@ tool:
 
 Broken pipe should terminate quietly rather than produce a Rust panic message.
 
-## 11. Errors and observability
+## 12. Errors and observability
 
 - Library crates expose typed errors with useful source chains.
 - The CLI translates errors into compatibility text and status codes.
@@ -429,15 +473,15 @@ Broken pipe should terminate quietly rather than produce a Rust panic message.
 - `anyhow`-style dynamic errors, if used, remain in the executable layer;
   libraries keep explicit error enums.
 
-## 12. Testing strategy
+## 13. Testing strategy
 
-### 12.1 Rust-owned fixtures
+### 13.1 Rust-owned fixtures
 
 The crate integration tests compile repository-owned synthetic `.conf`
 fixtures with `checkpolicy` and load the resulting binary policies. These
 fixtures exercise the Rust implementation without requiring an oracle tree.
 
-### 12.2 Differential CLI tests
+### 13.2 Differential CLI tests
 
 During migration, an external development harness may run the Python 4.7.1
 tool and the Rust tool with the same policy and arguments. Compare:
@@ -453,7 +497,7 @@ The argument matrix should cover success, no results, malformed criteria,
 unknown symbols, regex errors, running-policy lookup, verbose/debug logging,
 and broken pipes.
 
-### 12.3 Library tests
+### 13.3 Library tests
 
 - Exact, regex, direct, and indirect symbol matching.
 - Permission intersection, equality, and subset behavior.
@@ -467,7 +511,7 @@ and broken pipes.
 Property tests are appropriate for set matching, range normalization, and
 canonical expression keys.
 
-### 12.4 Native and parser testing
+### 13.4 Native and parser testing
 
 - Run the bridge under AddressSanitizer and UndefinedBehaviorSanitizer.
 - Test failure cleanup for partially loaded policies and iterators.
@@ -476,7 +520,7 @@ canonical expression keys.
 - If a pure Rust parser is added, differentially test its produced `Policy`
   against the libsepol loader and fuzz it independently.
 
-### 12.5 Compatibility matrix
+### 13.5 Compatibility matrix
 
 CI should cover:
 
@@ -487,7 +531,7 @@ CI should cover:
 - Representative distribution and Android binary policies where licensing
   permits storing or downloading fixtures.
 
-## 13. Performance plan
+## 14. Performance plan
 
 Record a baseline for the Python implementation before optimization:
 
@@ -508,7 +552,7 @@ Optimization order should be:
 
 No async runtime is needed for local policy analysis.
 
-## 14. Security considerations
+## 15. Security considerations
 
 Using Rust above the bridge does not make the libsepol binary parser memory
 safe. If hostile policy files are in scope, choose one of these approaches:
@@ -525,7 +569,7 @@ File paths should remain OS-native paths rather than requiring UTF-8. Policy
 identifiers should be validated according to the policy format before they are
 converted to Rust strings.
 
-## 15. Migration milestones
+## 16. Migration milestones
 
 ### M0: Freeze the compatibility contract
 
@@ -604,7 +648,7 @@ fixtures.
 Exit criterion: selected real and fixture policies produce equivalent owned
 models and identical tool results under both backends.
 
-## 16. Definition of done for the first Rust release
+## 17. Definition of done for the first Rust release
 
 - `sesearch`, `seinfo`, and `sediff` are installed as separate binaries.
 - Default CLI behavior is compatible with SETools 4.7.1 for the agreed matrix.
@@ -619,7 +663,7 @@ models and identical tool results under both backends.
 - Performance and peak memory are measured against the recorded Python
   baseline, with material regressions documented before release.
 
-## 17. Decisions to record as ADRs
+## 18. Decisions to record as ADRs
 
 Before implementation grows, record at least these decisions:
 
@@ -628,7 +672,9 @@ Before implementation grows, record at least these decisions:
    sections.
 3. The internal bitset representation.
 4. Conditional expression canonicalization and compatibility rendering.
-5. The structured-output schema and versioning policy.
+5. The structured-output schema and versioning policy. `sesearch` and `seinfo`
+   v1 are accepted in [ADR 0002](adr/0002-structured-output-v1.md); later
+   commands require command-specific schemas under the same envelope rules.
 6. Dynamic versus optional vendored libsepol builds.
 7. The public Rust API and crate publication policy.
 8. The threat model for untrusted binary policies.

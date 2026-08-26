@@ -1,0 +1,280 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "setools-rs seinfo structured output v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "tool",
+    "policy",
+    "query",
+    "statistics",
+    "result_count",
+    "results"
+  ],
+  "properties": {
+    "schema": {
+      "const": "setools-rs.seinfo"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "const": "seinfo"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      }
+    },
+    "query": {
+      "$ref": "#/$defs/query"
+    },
+    "statistics": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/statistics"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "result_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/result"
+      }
+    }
+  },
+  "$defs": {
+    "component": {
+      "enum": [
+        "boolean",
+        "category",
+        "class",
+        "common",
+        "constraint",
+        "default",
+        "permissive",
+        "polcap",
+        "role",
+        "role_types",
+        "sensitivity",
+        "typebounds",
+        "type",
+        "attribute",
+        "user",
+        "validatetrans",
+        "fs_use",
+        "genfscon",
+        "ibendportcon",
+        "ibpkeycon",
+        "initialsid",
+        "netifcon",
+        "nodecon",
+        "portcon",
+        "devicetreecon",
+        "iomemcon",
+        "ioportcon",
+        "pcidevicecon",
+        "pirqcon"
+      ]
+    },
+    "query_component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["component", "criterion"],
+      "properties": {
+        "component": {
+          "$ref": "#/$defs/component"
+        },
+        "criterion": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["all", "expand", "flat", "components"],
+      "properties": {
+        "all": {
+          "type": "boolean"
+        },
+        "expand": {
+          "type": "boolean"
+        },
+        "flat": {
+          "type": "boolean"
+        },
+        "components": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/query_component"
+          }
+        }
+      }
+    },
+    "statistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy_version",
+        "mls",
+        "target",
+        "handle_unknown",
+        "counts"
+      ],
+      "properties": {
+        "policy_version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mls": {
+          "type": "boolean"
+        },
+        "target": {
+          "enum": ["selinux", "xen"]
+        },
+        "handle_unknown": {
+          "enum": ["deny", "reject", "allow"]
+        },
+        "counts": {
+          "$ref": "#/$defs/counts"
+        }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "required": [
+        "classes",
+        "permissions",
+        "sensitivities",
+        "categories",
+        "types",
+        "attributes",
+        "users",
+        "roles",
+        "booleans",
+        "conditional_expressions",
+        "allow",
+        "neverallow",
+        "auditallow",
+        "dontaudit",
+        "type_transition",
+        "type_change",
+        "type_member",
+        "range_transition",
+        "role_allow",
+        "role_transition",
+        "constraints",
+        "validatetrans",
+        "mls_constraints",
+        "mls_validatetrans",
+        "permissive_types",
+        "policy_capabilities",
+        "default_rules",
+        "typebounds",
+        "initial_sids"
+      ],
+      "propertyNames": {
+        "enum": [
+          "classes",
+          "permissions",
+          "sensitivities",
+          "categories",
+          "types",
+          "attributes",
+          "users",
+          "roles",
+          "booleans",
+          "conditional_expressions",
+          "allow",
+          "neverallow",
+          "auditallow",
+          "dontaudit",
+          "type_transition",
+          "type_change",
+          "type_member",
+          "range_transition",
+          "role_allow",
+          "role_transition",
+          "constraints",
+          "validatetrans",
+          "mls_constraints",
+          "mls_validatetrans",
+          "permissive_types",
+          "policy_capabilities",
+          "default_rules",
+          "typebounds",
+          "initial_sids",
+          "allowxperm",
+          "neverallowxperm",
+          "auditallowxperm",
+          "dontauditxperm",
+          "ibendportcon",
+          "ibpkeycon",
+          "fs_use",
+          "genfscon",
+          "portcon",
+          "netifcon",
+          "nodecon",
+          "devicetreecon",
+          "iomemcon",
+          "ioportcon",
+          "pcidevicecon",
+          "pirqcon"
+        ]
+      },
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["component", "description", "count", "items"],
+      "properties": {
+        "component": {
+          "$ref": "#/$defs/component"
+        },
+        "description": {
+          "type": "string"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

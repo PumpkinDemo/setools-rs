@@ -1,0 +1,344 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "setools-rs sesearch structured output v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "tool",
+    "policy",
+    "query",
+    "result_count",
+    "results"
+  ],
+  "properties": {
+    "schema": {
+      "const": "setools-rs.sesearch"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "const": "sesearch"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      }
+    },
+    "query": {
+      "$ref": "#/$defs/query"
+    },
+    "result_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/result"
+      }
+    }
+  },
+  "$defs": {
+    "rule_type": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["family", "rule_type"],
+          "properties": {
+            "family": {
+              "const": "te"
+            },
+            "rule_type": {
+              "enum": [
+                "allow",
+                "allowxperm",
+                "auditallow",
+                "auditallowxperm",
+                "dontaudit",
+                "dontauditxperm",
+                "type_transition",
+                "type_change",
+                "type_member"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["family", "rule_type"],
+          "properties": {
+            "family": {
+              "const": "rbac"
+            },
+            "rule_type": {
+              "enum": ["allow", "role_transition"]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["family", "rule_type"],
+          "properties": {
+            "family": {
+              "const": "mls"
+            },
+            "rule_type": {
+              "const": "range_transition"
+            }
+          }
+        }
+      ]
+    },
+    "symbol_criterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "indirect", "regex"],
+      "properties": {
+        "value": {
+          "type": "string"
+        },
+        "indirect": {
+          "type": "boolean"
+        },
+        "regex": {
+          "type": "boolean"
+        }
+      }
+    },
+    "regex_criterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "regex"],
+      "properties": {
+        "value": {
+          "type": "string"
+        },
+        "regex": {
+          "type": "boolean"
+        }
+      }
+    },
+    "permission_criterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "equal", "subset"],
+      "properties": {
+        "value": {
+          "type": "string"
+        },
+        "equal": {
+          "type": "boolean"
+        },
+        "subset": {
+          "type": "boolean"
+        }
+      }
+    },
+    "equal_criterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "equal"],
+      "properties": {
+        "value": {
+          "type": "string"
+        },
+        "equal": {
+          "type": "boolean"
+        }
+      }
+    },
+    "boolean_criterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "equal", "regex"],
+      "properties": {
+        "value": {
+          "type": "string"
+        },
+        "equal": {
+          "type": "boolean"
+        },
+        "regex": {
+          "type": "boolean"
+        }
+      }
+    },
+    "query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_types",
+        "source",
+        "target",
+        "class",
+        "permissions",
+        "xpermissions",
+        "default",
+        "boolean"
+      ],
+      "properties": {
+        "rule_types": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/rule_type"
+          }
+        },
+        "source": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/symbol_criterion"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/symbol_criterion"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "class": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/regex_criterion"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "permissions": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/permission_criterion"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "xpermissions": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/equal_criterion"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "default": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/regex_criterion"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "boolean": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/boolean_criterion"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["family", "rule_type", "statement"],
+          "properties": {
+            "family": {
+              "const": "te"
+            },
+            "rule_type": {
+              "enum": [
+                "allow",
+                "allowxperm",
+                "auditallow",
+                "auditallowxperm",
+                "dontaudit",
+                "dontauditxperm",
+                "type_transition",
+                "type_change",
+                "type_member"
+              ]
+            },
+            "statement": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["family", "rule_type", "statement"],
+          "properties": {
+            "family": {
+              "const": "rbac"
+            },
+            "rule_type": {
+              "enum": ["allow", "role_transition"]
+            },
+            "statement": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["family", "rule_type", "statement"],
+          "properties": {
+            "family": {
+              "const": "mls"
+            },
+            "rule_type": {
+              "const": "range_transition"
+            },
+            "statement": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

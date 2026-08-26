@@ -1,8 +1,8 @@
 # Releasing
 
-The project currently supports standalone source releases and a Linux
-`sesearch` binary. The remaining commands are scaffolds, and crates.io
-publication is disabled until their public APIs stabilize.
+The project currently supports standalone source releases and Linux binaries
+for `sesearch`, `seinfo`, `sediff`, `sedta`, `seinfoflow`, and `sechecker`.
+Crates.io publication remains disabled until the public library APIs stabilize.
 
 ## Release checklist
 
@@ -14,12 +14,12 @@ publication is disabled until their public APIs stabilize.
    cargo fmt --all --check
    cargo test --workspace
    cargo clippy --workspace --all-targets -- -D warnings
-   cargo build --release -p setools-cli --bin sesearch
+   cargo build --release -p setools-cli --bin sesearch --bin seinfo --bin sediff --bin sedta --bin seinfoflow --bin sechecker
    ```
 
 3. Inspect the dynamic requirements with
-   `ldd target/release/sesearch` and record the build distribution and
-   libsepol/libselinux versions in the release notes.
+   `ldd target/release/sesearch` (and each other published binary) and record
+   the build distribution and libsepol/libselinux versions in the release notes.
 4. Commit the release state and create a signed or annotated tag:
 
    ```bash
@@ -36,5 +36,5 @@ publication is disabled until their public APIs stabilize.
    ```
 
 If a binary archive is published, include `README.md`, `COPYING`, and the two
-files under `LICENSES/` beside `sesearch`. Do not label binaries from untested
-platforms as supported.
+files under `LICENSES/` beside the published binaries. Do not label binaries
+from untested platforms as supported.

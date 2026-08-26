@@ -4,8 +4,12 @@ use std::env;
 use std::fmt;
 use std::process::ExitCode;
 
+mod json;
+mod sechecker;
 mod sediff;
+mod sedta;
 mod seinfo;
+mod seinfoflow;
 mod sesearch;
 
 /// Executable provided by the workspace.
@@ -44,17 +48,12 @@ impl fmt::Display for Tool {
 pub fn run(tool: Tool) -> ExitCode {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
     match tool {
-        Tool::Sesearch => return sesearch::run(arguments),
-        Tool::Seinfo => return seinfo::run(arguments),
-        Tool::Sediff => return sediff::run(arguments),
-        _ => {}
-    }
-    if arguments.len() == 1 && arguments[0] == "--version" {
-        println!("{}", env!("CARGO_PKG_VERSION"));
-        ExitCode::SUCCESS
-    } else {
-        eprintln!("{tool}: Rust rewrite scaffold; command is not implemented yet");
-        ExitCode::from(1)
+        Tool::Sesearch => sesearch::run(arguments),
+        Tool::Seinfo => seinfo::run(arguments),
+        Tool::Sediff => sediff::run(arguments),
+        Tool::Sedta => sedta::run(arguments),
+        Tool::Seinfoflow => seinfoflow::run(arguments),
+        Tool::Sechecker => sechecker::run(arguments),
     }
 }
 

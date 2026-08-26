@@ -49,7 +49,29 @@ CLI 兼容目标是 SETools 4.7.1。新格式或 API 只能作为附加能力引
   permission。产品仓库有独立双策略 fixture 和 integration tests。
 - 外层开发工作区的 `sesearch` 64-case、`seinfo` 37-case、`sediff` 64-case legacy
   matrix 均逐字节通过，但它们不属于产品依赖。
-- 当前主线进入 M5：实现 `sedta` 与 `seinfoflow`；`sechecker` 仍是 scaffold。
+- M5 `sedta` 已完成：标准/动态 domain-transition graph、attribute expansion、
+  domain/entrypoint exclude、forward/reverse、shortest/all paths、full/stats/limit、
+  running policy、日志和错误契约均已实现；产品自有 fixture/tests 与外层 37-case
+  legacy matrix 通过。
+- M5 `seinfoflow` 已完成：产品内置独立默认 permission map，weighted directed graph
+  支持 attribute expansion、weight/exclude/Boolean subgraph、forward/reverse、
+  shortest/all paths、full/stats/limit、running policy、日志和错误契约；产品 fixture/
+  tests 与外层 55-case legacy matrix 通过，真实 `policy` 的 4123-node/945061-edge
+  统计一致。
+- M6 `sechecker` 兼容范围已完成：新增 LGPL `setools-checker`，INI registry 支持
+  `empty_typeattr`、`assert_te`、`assert_rbac`、`ro_execs`、`ro_kmods`，CLI 已对齐
+  report/summary、disable、`-o`、verbose/debug、配置/加载错误和退出码。产品自有
+  policy/config fixtures 与 integration tests 通过；外层 44-case matrix 逐字节通过，
+  真实 `policy` 的 `init` source exemption check 与 legacy 同为 PASSED。
+- M6 `sesearch` structured-output v1 已完成：ADR 0002 与 normative JSON Schema 冻结
+  envelope、版本、成功/空结果、文本错误模型和 CLI coexistence；隐藏的附加
+  `--json` 不改变默认输出或冻结 help。产品 tests、外层 64-case matrix 和真实
+  `policy` JSON parse 均通过。
+- M6 `seinfo` structured-output v1 已完成：typed statistics 与全部 SELinux/Xen
+  component section 使用稳定 ID，query 记录 all/expand/flat/explicit criteria；产品
+  tests、外层 37-case matrix 和真实 `policy` JSON parse 均通过。
+- M6 尚未整体关闭；下一工作包是为 `sediff` 定义 command-specific JSON v1，先实现
+  property/simple-symbol diff 的最小垂直切片。
 
 常用验证命令：
 
@@ -57,7 +79,7 @@ CLI 兼容目标是 SETools 4.7.1。新格式或 API 只能作为附加能力引
 cargo fmt --all --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
-cargo build --release -p setools-cli --bin sesearch --bin seinfo --bin sediff
+cargo build --release -p setools-cli --bin sesearch --bin seinfo --bin sediff --bin sedta --bin seinfoflow --bin sechecker
 ```
 
 ## 不可破坏的设计约束

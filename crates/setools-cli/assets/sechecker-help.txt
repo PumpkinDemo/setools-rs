@@ -1,0 +1,16 @@
+usage: sechecker [-h] [--version] [-o OUTPUT_FILE] [-v] [--debug]
+                 config [policy]
+
+SELinux policy checker tool.
+
+positional arguments:
+  config                Path to the checker configuration file.
+  policy                Path to the SELinux policy to check.
+
+options:
+  -h, --help            show this help message and exit
+  --version             show program's version number and exit
+  -o, --output_file OUTPUT_FILE
+                        Path to log output.
+  -v, --verbose         Print extra informational messages
+  --debug               Enable debugging.
