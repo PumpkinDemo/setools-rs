@@ -122,6 +122,17 @@ cargo run -p setools-xtask -- check
 The generated files are under `man/man1/` and `completions/{bash,zsh,fish}/`.
 For example, inspect a page directly with `man -l man/man1/sesearch.1`.
 
+Run the versioned end-to-end performance suite against a representative policy:
+
+```bash
+python3 scripts/benchmark-cli.py --policy /path/to/policy
+```
+
+The Linux runner records per-process wall time and peak RSS without depending
+on legacy SETools. See [the performance guide](docs/PERFORMANCE.md) for the
+scenario contract, retained baseline, heavyweight full-diff command, and
+comparison rules.
+
 Example usage:
 
 ```bash
@@ -206,6 +217,7 @@ cargo fmt --all --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p setools-xtask -- check
+python3 scripts/benchmark-cli.py --list
 ```
 
 The repository contains only tests for the Rust implementation. Historical
@@ -226,6 +238,8 @@ build or test dependencies of this project.
 | `xtask` | deterministic man-page and completion generator |
 | `man/man1` | generated section-1 manual pages |
 | `completions` | generated Bash, Zsh, and Fish completions |
+| `benchmarks` | versioned standalone CLI benchmark scenarios |
+| `scripts/benchmark-cli.py` | Linux wall-time and peak-RSS runner |
 | `docs` | design, progress, and architecture decisions |
 
 ## Publication state

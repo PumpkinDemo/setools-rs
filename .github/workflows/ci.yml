@@ -37,6 +37,9 @@ jobs:
       - name: Verify generated CLI assets
         run: cargo run -p setools-xtask -- check
 
+      - name: Verify benchmark scenario manifest
+        run: python3 scripts/benchmark-cli.py --list
+
       - name: Build release binaries
         run: >-
           cargo build --release -p setools-cli

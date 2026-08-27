@@ -2,8 +2,8 @@
 
 最后更新：2026-08-27（Asia/Shanghai）
 
-当前阶段：六个兼容 CLI、command-specific JSON v1、man page 和 shell completion
-均已实现；M6 仅余后续集成边界决策
+当前阶段：六个兼容 CLI 及发布配套均已实现；默认性能/内存基线已冻结，下一步
+诊断真实 policy 上的 heavyweight full `sediff`
 
 CLI 兼容目标：SETools 4.7.1
 
@@ -16,6 +16,18 @@ CLI 兼容目标：SETools 4.7.1
 - Cargo 使用标准 `target/` 输出目录。
 
 ## 已完成
+
+### M0：兼容与性能基线
+
+- [x] `benchmarks/cli-v1.toml` 冻结 8 个端到端 CLI 场景；Linux-only、stdlib-only
+  `scripts/benchmark-cli.py` 使用 `wait4(2)` 记录每个子进程的 wall time 和 peak RSS，
+  同时保存 raw samples、min/median/max、policy/binary SHA-256 与环境信息。
+- [x] 1.9 MiB 真实 `policy` 的 7 个默认场景 Rust 基线已保存在
+  `docs/benchmarks/2026-08-27-cli-v1-rust.json`；外层 oracle 仓库另存 4.7.1 Python
+  原始样本与逐场景比值，不成为产品依赖。
+- [~] 手动 `sediff-full` 场景已冻结，但同一真实 policy 的当前运行在 prolonged
+  analysis 后收到 SIGKILL；当前环境无法证明具体资源限制，因此不声明成功的
+  wall-time/peak-RSS baseline。
 
 ### M1：workspace、bridge 与 owned model
 
@@ -159,6 +171,7 @@ cargo fmt --all --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p setools-xtask -- check
+python3 scripts/benchmark-cli.py --list
 cargo build --release -p setools-cli --bin sesearch --bin seinfo --bin sediff --bin sedta --bin seinfoflow --bin sechecker
 ```
 
@@ -173,8 +186,14 @@ check、0 failures。ASan/UBSan 在关闭 leak detection 后覆盖 bridge unit �
 policy load tests；LeakSanitizer 在当前 ptrace sandbox 中不可运行，仍需普通 shell/CI
 执行既有 sanitizer job。
 
-下一最小工作包：回到首发前尚未关闭的 M0，冻结可复现的 policy load/query
-benchmark 命令并记录 Rust wall time 与 peak RSS；legacy 对照只留在外层开发仓库。
+性能基线：真实 policy 的 7 个默认场景各 1 次 warm-up、3 次采样；Rust 相对 legacy
+在 6 项更快且 7 项 peak RSS 都更低。indirect `sesearch` 为 14.0x，`seinfoflow` graph
+为 12.8x 且 Rust peak RSS 约 224.4 MiB、legacy 约 714.1 MiB；`sediff-selected` 为
+0.84x，是默认场景中唯一较慢项。原始数据、硬件和哈希见 `docs/PERFORMANCE.md`。
+
+下一最小工作包：先为真实 policy 的 `sediff --stats POLICY POLICY` 分阶段记录 component
+耗时与内存增长，定位 full diff 的 SIGKILL 原因；未有测量证据前不引入 bitset、并行或
+大规模索引改造。
 
 ## 发布未关闭项
 
@@ -182,7 +201,7 @@ benchmark 命令并记录 Rust wall time 与 peak RSS；legacy 对照只留在�
 - [x] 生成 shell completion。
 - [x] 生成 man page。
 - [ ] 建立支持的 libsepol version CI matrix。
-- [ ] 记录性能和峰值内存基线。
+- [~] 7 个默认场景的性能和峰值内存基线已记录；manual `sediff-full` 尚未完成。
 - [ ] library API 稳定后决定 crates.io publication。
 
 ## 更新规则

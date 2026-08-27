@@ -21,14 +21,26 @@ Crates.io publication remains disabled until the public library APIs stabilize.
 3. Inspect the dynamic requirements with
    `ldd target/release/sesearch` (and each other published binary) and record
    the build distribution and libsepol/libselinux versions in the release notes.
-4. Commit the release state and create a signed or annotated tag:
+4. On the benchmark host, run the default suite against the retained
+   representative policy and archive the JSON with the release evidence:
+
+   ```bash
+   python3 scripts/benchmark-cli.py \
+     --policy /path/to/policy \
+     --output setools-rs-performance.json
+   ```
+
+   Review `docs/PERFORMANCE.md` before comparing results. Run the manual
+   `sediff-full` scenario separately because it is intentionally excluded from
+   the default suite.
+5. Commit the release state and create a signed or annotated tag:
 
    ```bash
    git tag -a v4.7.1 -m "setools-rs v4.7.1"
    git push origin main v4.7.1
    ```
 
-5. Create a source archive directly from the tag:
+6. Create a source archive directly from the tag:
 
    ```bash
    git archive --format=tar.gz --prefix=setools-rs-4.7.1/ \

@@ -1,0 +1,69 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+schema_version = 1
+suite = "cli-v1"
+
+[[scenario]]
+id = "policy-load"
+description = "Load an owned policy snapshot and render seinfo statistics."
+tool = "seinfo"
+args = ["{policy}"]
+warmup_runs = 1
+measured_runs = 3
+
+[[scenario]]
+id = "sesearch-exact"
+description = "Run an exact-name allow-rule source query."
+tool = "sesearch"
+args = ["--allow", "-s", "init", "{policy}"]
+warmup_runs = 1
+measured_runs = 3
+
+[[scenario]]
+id = "sesearch-regex"
+description = "Run a regular-expression allow-rule source query."
+tool = "sesearch"
+args = ["--allow", "-s", "^init$", "-rs", "{policy}"]
+warmup_runs = 1
+measured_runs = 3
+
+[[scenario]]
+id = "sesearch-indirect"
+description = "Run an indirect type-attribute allow-rule source query."
+tool = "sesearch"
+args = ["--allow", "-s", "domain", "{policy}"]
+warmup_runs = 1
+measured_runs = 3
+
+[[scenario]]
+id = "sediff-selected"
+description = "Load two policies and compute the selected type component."
+tool = "sediff"
+args = ["--stats", "--type", "{policy}", "{policy}"]
+warmup_runs = 1
+measured_runs = 3
+
+[[scenario]]
+id = "sediff-full"
+description = "Load two policies and compute every semantic diff component."
+tool = "sediff"
+args = ["--stats", "{policy}", "{policy}"]
+default = false
+warmup_runs = 0
+measured_runs = 1
+
+[[scenario]]
+id = "sedta-graph"
+description = "Construct the domain-transition graph and query init."
+tool = "sedta"
+args = ["-p", "{policy}", "-s", "init", "--stats", "-l", "1"]
+warmup_runs = 1
+measured_runs = 3
+
+[[scenario]]
+id = "seinfoflow-graph"
+description = "Construct the information-flow graph and query init."
+tool = "seinfoflow"
+args = ["-p", "{policy}", "-s", "init", "--stats", "-l", "1"]
+warmup_runs = 1
+measured_runs = 3

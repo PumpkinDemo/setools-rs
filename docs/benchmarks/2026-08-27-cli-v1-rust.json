@@ -1,0 +1,315 @@
+{
+  "environment": {
+    "cpu_model": "Intel Xeon Processor (Cascadelake)",
+    "logical_cpus": 16,
+    "machine": "x86_64",
+    "platform": "Linux-6.12.101+deb13-cloud-amd64-x86_64-with-glibc2.41",
+    "python": "3.14.6"
+  },
+  "generated_at_utc": "2026-08-27T11:50:51Z",
+  "implementation": {
+    "name": "setools-rs",
+    "tool_directory": "target/release",
+    "tools": {
+      "sediff": {
+        "sha256": "bb96d120e163398a0f5f399b09abcd238bcf68452e49d0e31cefbe1548298425",
+        "version": "4.7.1"
+      },
+      "sedta": {
+        "sha256": "6686f13fe38bfd01c10c97e7d09a673d4af4d3399a677670b8b66972ebd627d0",
+        "version": "4.7.1"
+      },
+      "seinfo": {
+        "sha256": "13bd029445c51708a99267f0d2e877299cff4aa747c8ddaf999379e5dbc6039d",
+        "version": "4.7.1"
+      },
+      "seinfoflow": {
+        "sha256": "c9d1d36e7b4b80d25d3835ebc68061fed05908e4010e1f91120b02dfdfa6b583",
+        "version": "4.7.1"
+      },
+      "sesearch": {
+        "sha256": "4c3cf083c840275eba20933381582577756c674675d2deef96ccfc4f691c20dd",
+        "version": "4.7.1"
+      }
+    }
+  },
+  "measurement": {
+    "cache_state": "warm-up counts are defined per scenario in the manifest",
+    "peak_rss": "wait4(2) ru_maxrss in KiB",
+    "stderr": "discarded after successful runs",
+    "stdout": "discarded",
+    "wall_clock": "time.perf_counter_ns"
+  },
+  "policy": {
+    "name": "policy",
+    "sha256": "6f24f378b14b0cd175c9e34f75b6a173b6cf73d30541962c7e5303cb24d62eee",
+    "size_bytes": 1947827
+  },
+  "scenarios": [
+    {
+      "command": [
+        "seinfo",
+        "{policy}"
+      ],
+      "description": "Load an owned policy snapshot and render seinfo statistics.",
+      "id": "policy-load",
+      "measured_runs": 3,
+      "peak_rss_kib": {
+        "max": 31252,
+        "median": 31200,
+        "min": 31168
+      },
+      "samples": [
+        {
+          "peak_rss_kib": 31168,
+          "wall_time_seconds": 0.314856052
+        },
+        {
+          "peak_rss_kib": 31200,
+          "wall_time_seconds": 0.377754212
+        },
+        {
+          "peak_rss_kib": 31252,
+          "wall_time_seconds": 0.321508176
+        }
+      ],
+      "wall_time_seconds": {
+        "max": 0.377754212,
+        "median": 0.321508176,
+        "min": 0.314856052
+      },
+      "warmup_runs": 1
+    },
+    {
+      "command": [
+        "sesearch",
+        "--allow",
+        "-s",
+        "init",
+        "{policy}"
+      ],
+      "description": "Run an exact-name allow-rule source query.",
+      "id": "sesearch-exact",
+      "measured_runs": 3,
+      "peak_rss_kib": {
+        "max": 31172,
+        "median": 31052,
+        "min": 31016
+      },
+      "samples": [
+        {
+          "peak_rss_kib": 31172,
+          "wall_time_seconds": 0.364037821
+        },
+        {
+          "peak_rss_kib": 31016,
+          "wall_time_seconds": 0.382456327
+        },
+        {
+          "peak_rss_kib": 31052,
+          "wall_time_seconds": 0.376149191
+        }
+      ],
+      "wall_time_seconds": {
+        "max": 0.382456327,
+        "median": 0.376149191,
+        "min": 0.364037821
+      },
+      "warmup_runs": 1
+    },
+    {
+      "command": [
+        "sesearch",
+        "--allow",
+        "-s",
+        "^init$",
+        "-rs",
+        "{policy}"
+      ],
+      "description": "Run a regular-expression allow-rule source query.",
+      "id": "sesearch-regex",
+      "measured_runs": 3,
+      "peak_rss_kib": {
+        "max": 31496,
+        "median": 31356,
+        "min": 31316
+      },
+      "samples": [
+        {
+          "peak_rss_kib": 31316,
+          "wall_time_seconds": 0.329881661
+        },
+        {
+          "peak_rss_kib": 31496,
+          "wall_time_seconds": 0.383210476
+        },
+        {
+          "peak_rss_kib": 31356,
+          "wall_time_seconds": 0.326301707
+        }
+      ],
+      "wall_time_seconds": {
+        "max": 0.383210476,
+        "median": 0.329881661,
+        "min": 0.326301707
+      },
+      "warmup_runs": 1
+    },
+    {
+      "command": [
+        "sesearch",
+        "--allow",
+        "-s",
+        "domain",
+        "{policy}"
+      ],
+      "description": "Run an indirect type-attribute allow-rule source query.",
+      "id": "sesearch-indirect",
+      "measured_runs": 3,
+      "peak_rss_kib": {
+        "max": 62824,
+        "median": 62756,
+        "min": 62692
+      },
+      "samples": [
+        {
+          "peak_rss_kib": 62756,
+          "wall_time_seconds": 0.561005436
+        },
+        {
+          "peak_rss_kib": 62824,
+          "wall_time_seconds": 0.556103999
+        },
+        {
+          "peak_rss_kib": 62692,
+          "wall_time_seconds": 0.56197651
+        }
+      ],
+      "wall_time_seconds": {
+        "max": 0.56197651,
+        "median": 0.561005436,
+        "min": 0.556103999
+      },
+      "warmup_runs": 1
+    },
+    {
+      "command": [
+        "sediff",
+        "--stats",
+        "--type",
+        "{policy}",
+        "{policy}"
+      ],
+      "description": "Load two policies and compute the selected type component.",
+      "id": "sediff-selected",
+      "measured_runs": 3,
+      "peak_rss_kib": {
+        "max": 47848,
+        "median": 47712,
+        "min": 47700
+      },
+      "samples": [
+        {
+          "peak_rss_kib": 47712,
+          "wall_time_seconds": 0.690554818
+        },
+        {
+          "peak_rss_kib": 47848,
+          "wall_time_seconds": 0.69522197
+        },
+        {
+          "peak_rss_kib": 47700,
+          "wall_time_seconds": 0.646924868
+        }
+      ],
+      "wall_time_seconds": {
+        "max": 0.69522197,
+        "median": 0.690554818,
+        "min": 0.646924868
+      },
+      "warmup_runs": 1
+    },
+    {
+      "command": [
+        "sedta",
+        "-p",
+        "{policy}",
+        "-s",
+        "init",
+        "--stats",
+        "-l",
+        "1"
+      ],
+      "description": "Construct the domain-transition graph and query init.",
+      "id": "sedta-graph",
+      "measured_runs": 3,
+      "peak_rss_kib": {
+        "max": 40152,
+        "median": 40020,
+        "min": 39956
+      },
+      "samples": [
+        {
+          "peak_rss_kib": 40152,
+          "wall_time_seconds": 0.433864626
+        },
+        {
+          "peak_rss_kib": 39956,
+          "wall_time_seconds": 0.43412799
+        },
+        {
+          "peak_rss_kib": 40020,
+          "wall_time_seconds": 0.432141319
+        }
+      ],
+      "wall_time_seconds": {
+        "max": 0.43412799,
+        "median": 0.433864626,
+        "min": 0.432141319
+      },
+      "warmup_runs": 1
+    },
+    {
+      "command": [
+        "seinfoflow",
+        "-p",
+        "{policy}",
+        "-s",
+        "init",
+        "--stats",
+        "-l",
+        "1"
+      ],
+      "description": "Construct the information-flow graph and query init.",
+      "id": "seinfoflow-graph",
+      "measured_runs": 3,
+      "peak_rss_kib": {
+        "max": 231028,
+        "median": 229768,
+        "min": 228196
+      },
+      "samples": [
+        {
+          "peak_rss_kib": 231028,
+          "wall_time_seconds": 1.650252214
+        },
+        {
+          "peak_rss_kib": 229768,
+          "wall_time_seconds": 1.70216013
+        },
+        {
+          "peak_rss_kib": 228196,
+          "wall_time_seconds": 1.659743041
+        }
+      ],
+      "wall_time_seconds": {
+        "max": 1.70216013,
+        "median": 1.659743041,
+        "min": 1.650252214
+      },
+      "warmup_runs": 1
+    }
+  ],
+  "schema_version": 1,
+  "suite": "cli-v1"
+}

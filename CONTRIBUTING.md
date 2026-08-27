@@ -15,6 +15,7 @@ cargo fmt --all --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p setools-xtask -- check
+python3 scripts/benchmark-cli.py --list
 cargo build --release -p setools-cli --bin sesearch
 ```
 

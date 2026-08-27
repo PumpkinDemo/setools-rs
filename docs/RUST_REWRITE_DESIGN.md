@@ -564,6 +564,15 @@ Optimization order should be:
 
 No async runtime is needed for local policy analysis.
 
+The accepted CLI benchmark contract is stored in `benchmarks/cli-v1.toml` and
+executed by the standalone, legacy-free `scripts/benchmark-cli.py` runner. On
+Linux it records end-to-end wall time and per-child peak RSS from `wait4(2)`,
+retains raw samples plus min/median/max summaries, and fingerprints the policy
+and binaries. The seven default scenarios use warm runs; heavyweight
+`sediff-full` remains an explicit manual scenario. Machine-specific results are
+evidence, not CI thresholds. Legacy adapters and cross-implementation ratios
+remain outside the standalone product repository.
+
 ## 15. Security considerations
 
 Using Rust above the bridge does not make the libsepol binary parser memory

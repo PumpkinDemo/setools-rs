@@ -90,9 +90,15 @@ CLI 兼容目标是 SETools 4.7.1。新格式或 API 只能作为附加能力引
   binary 与生成器共享的公开 CLI metadata；dependency-free `setools-xtask` 生成并检查
   6 个 man1 page 与 Bash/Zsh/Fish completion，共 24 个 committed asset。隐藏的
   `--json` 由生成器显式补入，兼容 help/parser 不变。
+- M0 CLI performance contract 已冻结：`benchmarks/cli-v1.toml` 定义 7 个默认场景和
+  manual `sediff-full`，stdlib-only `scripts/benchmark-cli.py` 在 Linux 用 `wait4(2)`
+  记录 wall time/peak RSS。真实 1.9 MiB policy 的 Rust raw baseline 位于
+  `docs/benchmarks/2026-08-27-cli-v1-rust.json`；legacy adapter/results 只在外层。
+- 默认 7 场景中 Rust 相对 legacy 在 6 项更快且全部更省 peak RSS；manual full diff
+  在当前 managed environment prolonged analysis 后收到 SIGKILL，原因尚不能归因。
 - 六个 CLI 的 command-specific JSON v1 与发布文档资产均已完成；M6 尚未整体关闭，
-  只剩 Python binding、MCP、GUI 的后续集成边界决策。下一最小工作包回到 M0，冻结
-  policy load/query benchmark 命令并记录 Rust wall time 与 peak RSS。
+  只剩 Python binding、MCP、GUI 的后续集成边界决策。下一最小工作包先测量并定位
+  full `sediff --stats POLICY POLICY` 的 component 时间/内存增长。
 
 常用验证命令：
 
@@ -101,6 +107,7 @@ cargo fmt --all --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p setools-xtask -- check
+python3 scripts/benchmark-cli.py --list
 cargo build --release -p setools-cli --bin sesearch --bin seinfo --bin sediff --bin sedta --bin seinfoflow --bin sechecker
 ```
 
