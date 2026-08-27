@@ -96,6 +96,13 @@ CLI 兼容目标是 SETools 4.7.1。新格式或 API 只能作为附加能力引
   `docs/benchmarks/2026-08-27-cli-v1-rust.json`；legacy adapter/results 只在外层。
 - 默认 7 场景中 Rust 相对 legacy 在 6 项更快且全部更省 peak RSS；manual full diff
   在当前 managed environment prolonged analysis 后收到 SIGKILL，原因尚不能归因。
+- native backend 已移除 libselinux：running-policy discovery 由安全 Rust 实现，bridge
+  ABI 6 只链接 libsepol；默认动态 binary 不再传递依赖 PCRE2。
+- 首个 x86_64 Linux portable release 已实现：`scripts/build-portable-release.sh` 固定并
+  校验 libsepol 3.11，构建无任何 ELF `NEEDED` 的 static PIE，打包六个 binary、license、
+  man/completion、校验清单和双方完整 source。ADR 0004 记录构建与支持边界。
+- M7 已开始：独立、零 unsafe/FFI 的 `setools-policy-binary` 实现 version 15..=35 的
+  SELinux/Xen bounded metadata parser，并与 libsepol loader 差分；它尚未接入 CLI。
 - 六个 CLI 的 command-specific JSON v1 与发布文档资产均已完成；M6 尚未整体关闭，
   只剩 Python binding、MCP、GUI 的后续集成边界决策。下一最小工作包先测量并定位
   full `sediff --stats POLICY POLICY` 的 component 时间/内存增长。
@@ -109,12 +116,14 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p setools-xtask -- check
 python3 scripts/benchmark-cli.py --list
 cargo build --release -p setools-cli --bin sesearch --bin seinfo --bin sediff --bin sedta --bin seinfoflow --bin sechecker
+scripts/build-portable-release.sh --policy /path/to/policy
 ```
 
 ## 不可破坏的设计约束
 
-- 使用小型 C bridge 读取 libsepol 内部数据；普通 Rust 代码不得直接遍历
-  `policydb_t`、`hashtab_t`、`avtab_t` 或 `ebitmap_t`。
+- 当前 CLI loader 使用小型 C bridge 读取 libsepol 内部数据；普通 Rust 代码不得直接
+  遍历 `policydb_t`、`hashtab_t`、`avtab_t` 或 `ebitmap_t`。纯 Rust parser 必须在
+  独立 crate 按 binary format 安全解码，不得复制 C layout/unsafe traversal。
 - raw handle、FFI pointer 和常规 `unsafe` 必须封装在 `setools-sepol`。
 - native policy 只用于加载；复制为 immutable owned `Policy` 后立即释放。
 - query、diff、graph 和 CLI 层不得依赖 libsepol pointer、布局或 lifetime。
@@ -132,8 +141,10 @@ cargo build --release -p setools-cli --bin sesearch --bin seinfo --bin sediff --
 - library crate 保持 LGPL-2.1-only 边界。
 - CLI program 与测试保持 GPL-2.0-only 边界。
 - 新增依赖前确认用途、license 和维护状态。
-- 默认通过 `pkg-config` 动态链接 libsepol/libselinux，并用 `cc` 编译 bridge；不把
+- 默认通过 `pkg-config` 动态链接 libsepol，并用 `cc` 编译 bridge；不把
   bindgen/libclang 作为默认构建要求。
+- portable release 使用经 SHA-256 固定的 libsepol source/static archive；更新版本或
+  digest 前必须检查 license、ABI、完整测试和真实 policy。
 
 ## 每次会话结束时
 

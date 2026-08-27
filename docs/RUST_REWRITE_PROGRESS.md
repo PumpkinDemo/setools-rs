@@ -2,8 +2,8 @@
 
 最后更新：2026-08-27（Asia/Shanghai）
 
-当前阶段：六个兼容 CLI 及发布配套均已实现；默认性能/内存基线已冻结，下一步
-诊断真实 policy 上的 heavyweight full `sediff`
+当前阶段：首个 x86_64 Linux portable 版本已可发布；纯 Rust binary-policy parser
+已开始 metadata 垂直切片
 
 CLI 兼容目标：SETools 4.7.1
 
@@ -11,7 +11,10 @@ CLI 兼容目标：SETools 4.7.1
 
 - 本仓库独立构建、测试和发布。
 - 实现不依赖 legacy SETools Python/Cython 源码或运行环境。
-- native 依赖仅为 libsepol、libselinux 及编译 C bridge 所需的 C toolchain。
+- 默认 source build 的 native 依赖仅为 libsepol 及编译 C bridge 所需的 C toolchain；
+  不依赖 libselinux/PCRE2。
+- x86_64 Linux portable archive 使用固定 libsepol 3.11 构建 static PIE，目标系统无需
+  安装 libsepol、libselinux、PCRE2、libgcc 或特定 glibc shared object。
 - `checkpolicy` 只用于编译 Rust integration-test 的 synthetic policy fixtures。
 - Cargo 使用标准 `target/` 输出目录。
 
@@ -37,7 +40,9 @@ CLI 兼容目标：SETools 4.7.1
   TE/xperm、filename transition、role/RBAC 和 MLS range transition snapshot。
 - [x] native policy 在 loader 返回 owned `Policy` 前释放。
 - [x] raw libsepol 类型与常规 `unsafe` 不离开 `setools-sepol`。
-- [x] running-policy discovery 使用 libselinux current-policy path 和版本化 fallback。
+- [x] running-policy discovery 由安全 Rust 读取 `/proc`、SELinuxfs 与
+  `/etc/selinux/config`，保持 current policy 和版本化 fallback 顺序；bridge ABI 6
+  只提供 libsepol policy-version 范围。
 
 ### M2：`sesearch`
 
@@ -154,13 +159,31 @@ CLI 兼容目标：SETools 4.7.1
   Bash、Zsh、Fish completion，共 24 个 committed release asset；CI、README 和 release
   checklist 均接入 drift check。
 
+### 首个 portable release
+
+- [x] native bridge 与默认构建彻底移除 libselinux，动态 binary 的直接 native 依赖
+  只剩 libsepol；PCRE2 不再进入传递依赖。
+- [x] `SETOOLS_LIBSEPOL_STATIC_ROOT` 支持显式 static libsepol prefix，同时保留发行版友好
+  的 pkg-config dynamic source build。
+- [x] `scripts/build-portable-release.sh` 固定 libsepol 3.11 官方 source URL/SHA-256，
+  构建 x86_64 GNU/Linux static PIE，并拒绝任何含 ELF `NEEDED` 的产物。
+- [x] portable archive 包含六个 stripped binary、README、license、man/completion、
+  build info、per-file checksum、libsepol 原始 tarball，以及带 locked vendored Cargo
+  dependencies 的 setools-rs corresponding source。
+- [x] 15 MiB archive 已在全新目录解包：外层 checksum、包内全部 39 个文件、六个
+  `--version`、六个 ELF linkage 检查全部通过；`seinfo`/`sesearch` 成功加载当前
+  1.9 MiB policy。相同 archive 也在禁网、read-only Debian trixie container 中成功
+  用 `seinfo` 加载该 policy。
+- [x] ADR 0004 记录 dynamic/static 模式、支持范围、license/source 与 C parser 风险。
+
 ## 后续里程碑
 
 - [x] M4：`sediff` semantic diff。
 - [x] M5：`sedta` 与 `seinfoflow` graph analysis。
 - [~] M6：六个 CLI 的兼容范围、command-specific JSON v1、completion 和 man page
   均已完成；仅余 Python binding、MCP、GUI 的后续集成边界决策。
-- [ ] M7：可选纯 Rust binary-policy parser；不阻塞首个发布。
+- [~] M7：独立 `setools-policy-binary` 已实现零 FFI/unsafe 的 bounded metadata parser；
+  完整 symbol/rule/context model、fuzzing 和 CLI cutover 尚未完成。
 
 ## 当前验证基线
 
@@ -171,16 +194,20 @@ cargo fmt --all --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p setools-xtask -- check
+cargo run -p setools-policy-binary --example policy-header -- /path/to/policy
 python3 scripts/benchmark-cli.py --list
 cargo build --release -p setools-cli --bin sesearch --bin seinfo --bin sediff --bin sedta --bin seinfoflow --bin sechecker
+scripts/build-portable-release.sh --policy /path/to/policy
 ```
 
-最近一次实现验证：workspace 81 tests、Clippy `-D warnings`、release 六个 binary
-build、24 个 generated asset 的 byte-exact check、六份 Bash/Zsh syntax check 和六份
+最近一次实现验证：workspace 87 tests、Clippy `-D warnings`、release 六个 binary
+build、24 个 generated asset 的 byte-exact check、benchmark manifest list 和六份
 man1 `groff -man` check 均通过；六份 Fish completion 已生成，但当前机器没有 Fish
-runtime 可执行 syntax check。此前 44-case `sechecker` legacy 差分矩阵以及 64-case `sesearch`、
-37-case `seinfo`、64-case `sediff`、37-case `sedta` 和 55-case `seinfoflow` 矩阵基线
-保持不变。六个 normative JSON schema 均可由标准 JSON parser 读取；真实 1.9 MiB
+runtime 可执行 syntax check。本次重新执行 44-case `sechecker`、64-case `sesearch`、
+37-case `seinfo`、64-case `sediff`、37-case `sedta` 和 55-case `seinfoflow` 全部 legacy
+差分矩阵，均通过。默认动态六 binary 只含 libsepol 和 GNU system runtime，不含
+libselinux/PCRE2；portable 六 binary 均无 ELF `NEEDED`。六个 normative JSON schema
+均可由标准 JSON parser 读取；真实 1.9 MiB
 `policy` 的 `sechecker --json` init source exemption check 可解析并返回 1 个 passed
 check、0 failures。ASan/UBSan 在关闭 leak detection 后覆盖 bridge unit 与四个真实
 policy load tests；LeakSanitizer 在当前 ptrace sandbox 中不可运行，仍需普通 shell/CI
@@ -191,18 +218,21 @@ policy load tests；LeakSanitizer 在当前 ptrace sandbox 中不可运行，仍
 为 12.8x 且 Rust peak RSS 约 224.4 MiB、legacy 约 714.1 MiB；`sediff-selected` 为
 0.84x，是默认场景中唯一较慢项。原始数据、硬件和哈希见 `docs/PERFORMANCE.md`。
 
-下一最小工作包：先为真实 policy 的 `sediff --stats POLICY POLICY` 分阶段记录 component
-耗时与内存增长，定位 full diff 的 SIGKILL 原因；未有测量证据前不引入 bitset、并行或
-大规模索引改造。
+下一最小工作包：在纯 Rust parser 中实现 version/target compatibility table selection
+和第一个 symbol-table family，增加 count/allocation limits 与 libsepol snapshot 差分；
+在完整 owned model parity 前不接入 CLI。
 
 ## 发布未关闭项
 
 - [x] 六个 CLI 的 4.7.1 兼容范围已完成。
 - [x] 生成 shell completion。
 - [x] 生成 man page。
-- [ ] 建立支持的 libsepol version CI matrix。
+- [~] portable artifact 固定并实测 libsepol 3.11，外层 pinned 3.9 完整测试仍保留；
+  product CI 的正式 3.9/latest/main matrix 尚未建立。
 - [~] 7 个默认场景的性能和峰值内存基线已记录；manual `sediff-full` 尚未完成。
 - [ ] library API 稳定后决定 crates.io publication。
+- [x] x86_64 Linux portable archive 包含 license、man/completion、dependency/build info、
+  checksums 与 corresponding source，且六个 binary 均无 ELF `NEEDED`。
 
 ## 更新规则
 

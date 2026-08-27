@@ -5,6 +5,7 @@ members = [
     "crates/setools-diff",
     "crates/setools-graph",
     "crates/setools-policy",
+    "crates/setools-policy-binary",
     "crates/setools-query",
     "crates/setools-sepol",
     "xtask",

@@ -17,14 +17,19 @@ use setools_policy::{
 use std::error::Error;
 use std::ffi::{CStr, CString, c_char, c_int};
 use std::fmt;
+use std::fs;
 use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::rc::Rc;
 
-const BRIDGE_ABI_VERSION: u32 = 5;
+const BRIDGE_ABI_VERSION: u32 = 6;
 const INVALID_METADATA: i32 = 5;
+const SELINUX_CONFIG: &str = "/etc/selinux/config";
+const SELINUX_POLICY_ROOT: &str = "/etc/selinux";
+const DEFAULT_POLICY_TYPE: &str = "targeted";
+const DEFAULT_KERNEL_POLICY_VERSION: u32 = 15;
 
 /// libsepol-backed binary policy loader.
 #[derive(Clone, Copy, Debug, Default)]
@@ -40,10 +45,10 @@ pub fn use_default_sigpipe() -> bool {
     unsafe { ffi::st_process_use_default_sigpipe() == 0 }
 }
 
-/// Paths and version limits used by libselinux/libsepol to find a running policy.
+/// Paths and version limits used to find a running policy.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RunningPolicyInfo {
-    /// Whether libselinux found a mounted SELinux filesystem.
+    /// Whether the kernel reports SELinuxfs support.
     pub selinuxfs_exists: bool,
     /// Oldest binary policy version accepted by libsepol.
     pub minimum_version: u32,
@@ -73,22 +78,144 @@ impl RunningPolicyInfo {
     }
 }
 
-/// Reads the running-policy discovery values supplied by libselinux/libsepol.
+/// Discovers running-policy candidates without linking to libselinux.
 #[must_use]
 pub fn running_policy_info() -> Option<RunningPolicyInfo> {
-    let mut raw = ffi::StRunningPolicyInfo::default();
-    // SAFETY: `raw` is a valid writable value and the returned string views
-    // point at libselinux-owned static storage which is copied immediately.
-    if unsafe { ffi::st_running_policy_info_get(&mut raw) } != 0 {
+    let mut versions = ffi::StPolicyVersionInfo::default();
+    // SAFETY: `versions` is a valid writable POD value. The bridge only copies
+    // the two public libsepol version limits into it.
+    if unsafe { ffi::st_policy_version_info_get(&mut versions) } != 0 {
         return None;
     }
+
+    let policy_type = fs::read_to_string(SELINUX_CONFIG)
+        .ok()
+        .and_then(|config| policy_type_from_config(&config).map(str::to_owned))
+        .unwrap_or_else(|| DEFAULT_POLICY_TYPE.to_owned());
+    let binary_policy_path = Path::new(SELINUX_POLICY_ROOT)
+        .join(policy_type)
+        .join("policy/policy");
+    let filesystems = fs::read_to_string("/proc/filesystems");
+    let selinuxfs_exists = filesystems
+        .as_deref()
+        .map_or(true, |contents| contents.contains("selinuxfs"));
+    let mount = fs::read_to_string("/proc/mounts")
+        .ok()
+        .and_then(|mounts| selinux_mount_from_proc(&mounts));
+    let current_policy_path = mount.and_then(|mount| {
+        let current = mount.join("policy");
+        if current.exists() {
+            return Some(current);
+        }
+
+        let policy_version = kernel_policy_version(&mount)?;
+        (1..=policy_version).rev().find_map(|version| {
+            versioned_policy_path(&binary_policy_path, version)
+                .is_file()
+                .then(|| versioned_policy_path(&binary_policy_path, version))
+        })
+    });
+
     Some(RunningPolicyInfo {
-        selinuxfs_exists: raw.selinuxfs_exists != 0,
-        minimum_version: raw.minimum_version,
-        maximum_version: raw.maximum_version,
-        current_policy_path: copy_os_path(raw.current_policy_path),
-        binary_policy_path: copy_os_path(raw.binary_policy_path),
+        selinuxfs_exists,
+        minimum_version: versions.minimum_version,
+        maximum_version: versions.maximum_version,
+        current_policy_path,
+        binary_policy_path: Some(binary_policy_path),
     })
+}
+
+fn policy_type_from_config(config: &str) -> Option<&str> {
+    config
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim_start();
+            if line.starts_with('#') || line.is_empty() {
+                return None;
+            }
+            const TAG: &str = "SELINUXTYPE=";
+            line.get(..TAG.len())
+                .filter(|prefix| prefix.eq_ignore_ascii_case(TAG))
+                .map(|_| line[TAG.len()..].trim())
+        })
+        .next_back()
+}
+
+fn selinux_mount_from_proc(mounts: &str) -> Option<PathBuf> {
+    let mut candidates = mounts.lines().filter_map(|line| {
+        let mut fields = line.split_ascii_whitespace();
+        let _source = fields.next()?;
+        let mount = fields.next()?;
+        let filesystem = fields.next()?;
+        let options = fields.next()?;
+        if filesystem != "selinuxfs" || options.split(',').any(|option| option == "ro") {
+            return None;
+        }
+        Some(decode_proc_mount_path(mount))
+    });
+
+    let first = candidates.next()?;
+    Some(candidates.fold(first, |best, candidate| {
+        if mount_preference(&candidate) < mount_preference(&best) {
+            candidate
+        } else {
+            best
+        }
+    }))
+}
+
+fn mount_preference(path: &Path) -> u8 {
+    if path == Path::new("/sys/fs/selinux") {
+        0
+    } else if path == Path::new("/selinux") {
+        1
+    } else {
+        2
+    }
+}
+
+fn decode_proc_mount_path(value: &str) -> PathBuf {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'\\' && index + 3 < bytes.len() {
+            let octal = &bytes[index + 1..index + 4];
+            if octal.iter().all(|byte| matches!(byte, b'0'..=b'7')) {
+                decoded.push((octal[0] - b'0') * 64 + (octal[1] - b'0') * 8 + octal[2] - b'0');
+                index += 4;
+                continue;
+            }
+        }
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        PathBuf::from(std::ffi::OsString::from_vec(decoded))
+    }
+    #[cfg(not(unix))]
+    {
+        PathBuf::from(String::from_utf8_lossy(&decoded).into_owned())
+    }
+}
+
+fn kernel_policy_version(mount: &Path) -> Option<u32> {
+    match fs::read_to_string(mount.join("policyvers")) {
+        Ok(value) => value.trim().parse().ok(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Some(DEFAULT_KERNEL_POLICY_VERSION)
+        }
+        Err(_) => None,
+    }
+}
+
+fn versioned_policy_path(base: &Path, version: u32) -> PathBuf {
+    let mut path = base.as_os_str().to_os_string();
+    path.push(format!(".{version}"));
+    PathBuf::from(path)
 }
 
 /// Produces the local timestamp format used by Python's default logging formatter.
@@ -2269,24 +2396,6 @@ fn copy_string(
     })
 }
 
-fn copy_os_path(view: ffi::StStringView) -> Option<PathBuf> {
-    if view.data.is_null() {
-        return None;
-    }
-    // SAFETY: libselinux owns this static string and guarantees it remains
-    // readable; only an immediate owned copy is retained.
-    let bytes = unsafe { std::slice::from_raw_parts(view.data.cast::<u8>(), view.length) };
-    #[cfg(unix)]
-    {
-        use std::os::unix::ffi::OsStrExt;
-        Some(PathBuf::from(std::ffi::OsStr::from_bytes(bytes)))
-    }
-    #[cfg(not(unix))]
-    {
-        std::str::from_utf8(bytes).ok().map(PathBuf::from)
-    }
-}
-
 mod ffi {
     use super::{c_char, c_int};
 
@@ -2320,12 +2429,9 @@ mod ffi {
 
     #[repr(C)]
     #[derive(Default)]
-    pub struct StRunningPolicyInfo {
-        pub selinuxfs_exists: u32,
+    pub struct StPolicyVersionInfo {
         pub minimum_version: u32,
         pub maximum_version: u32,
-        pub current_policy_path: StStringView,
-        pub binary_policy_path: StStringView,
     }
 
     #[repr(C)]
@@ -2478,7 +2584,7 @@ mod ffi {
     unsafe extern "C" {
         pub fn st_bridge_abi_version() -> u32;
         pub fn st_process_use_default_sigpipe() -> c_int;
-        pub fn st_running_policy_info_get(info: *mut StRunningPolicyInfo) -> c_int;
+        pub fn st_policy_version_info_get(info: *mut StPolicyVersionInfo) -> c_int;
         pub fn st_local_log_timestamp(buffer: *mut c_char, capacity: usize) -> c_int;
         pub fn st_policy_load(path: *const c_char, error: *mut StError) -> *mut StPolicy;
         pub fn st_policy_free(policy: *mut StPolicy);
@@ -2738,7 +2844,10 @@ mod ffi {
 
 #[cfg(test)]
 mod tests {
-    use super::{LibsepolLoader, RunningPolicyInfo, local_log_timestamp};
+    use super::{
+        LibsepolLoader, RunningPolicyInfo, decode_proc_mount_path, local_log_timestamp,
+        policy_type_from_config, selinux_mount_from_proc,
+    };
     use setools_policy::PolicyLoader;
     use std::path::{Path, PathBuf};
 
@@ -2772,6 +2881,34 @@ mod tests {
                 "/etc/selinux/policy/policy.32",
             ]
             .map(PathBuf::from)
+        );
+    }
+
+    #[test]
+    fn parses_selinux_policy_type_like_libselinux() {
+        let config = concat!(
+            "# comment\nSELINUX=permissive\n",
+            "  selinuxtype= first \t\nSELINUXTYPE=custom\n",
+        );
+        assert_eq!(policy_type_from_config(config), Some("custom"));
+        assert_eq!(policy_type_from_config("SELINUXTYPE = custom\n"), None);
+        assert_eq!(policy_type_from_config("# SELINUXTYPE=ignored\n"), None);
+    }
+
+    #[test]
+    fn selects_the_preferred_writable_selinuxfs_mount() {
+        let mounts = concat!(
+            "selinuxfs /custom\\040mount selinuxfs rw,nosuid 0 0\n",
+            "selinuxfs /selinux selinuxfs ro,nosuid 0 0\n",
+            "selinuxfs /sys/fs/selinux selinuxfs rw,nosuid 0 0\n",
+        );
+        assert_eq!(
+            selinux_mount_from_proc(mounts),
+            Some(PathBuf::from("/sys/fs/selinux"))
+        );
+        assert_eq!(
+            decode_proc_mount_path("/custom\\040mount"),
+            PathBuf::from("/custom mount")
         );
     }
 

@@ -14,7 +14,6 @@
 #include <time.h>
 #include <netinet/in.h>
 
-#include <selinux/selinux.h>
 #include <sepol/debug.h>
 #include <sepol/handle.h>
 #include <sepol/policydb.h>
@@ -270,22 +269,14 @@ uint32_t st_bridge_abi_version(void)
     return ST_BRIDGE_ABI_VERSION;
 }
 
-int32_t st_running_policy_info_get(st_running_policy_info *info)
+int32_t st_policy_version_info_get(st_policy_version_info *info)
 {
-    const char *current_policy_path;
-    const char *binary_policy_path;
-
     if (info == NULL) {
         return ST_STATUS_INVALID_ARGUMENT;
     }
 
-    current_policy_path = selinux_current_policy_path();
-    binary_policy_path = selinux_binary_policy_path();
-    info->selinuxfs_exists = selinuxfs_exists() != 0;
     info->minimum_version = (uint32_t)sepol_policy_kern_vers_min();
     info->maximum_version = (uint32_t)sepol_policy_kern_vers_max();
-    info->current_policy_path = st_string(current_policy_path);
-    info->binary_policy_path = st_string(binary_policy_path);
     return ST_STATUS_OK;
 }
 

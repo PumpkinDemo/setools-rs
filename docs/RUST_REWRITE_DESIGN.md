@@ -37,7 +37,7 @@ formats and APIs should be additive.
 - Allow an external development harness to use historical policy fixtures and
   the Python implementation as a differential oracle during migration,
   without making either a repository, build, test, or runtime dependency.
-- Make a future pure Rust binary-policy parser possible without changing the
+- Implement a pure Rust binary-policy parser without changing the
   query and diff layers.
 
 ## 3. Non-goals for the first release
@@ -46,7 +46,8 @@ formats and APIs should be additive.
 - Redesigning or simplifying existing command-line options.
 - Reimplementing the Qt GUI.
 - Promising a stable public Rust API before CLI compatibility is reached.
-- Making a fully static, dependency-free executable.
+- Shipping portable binaries for every architecture or bundling optional
+  Graphviz output support.
 - Improving questionable legacy behavior in the default compatibility mode.
 
 Compatibility fixes and intentional behavior changes should be introduced
@@ -57,8 +58,12 @@ behind a new option or in a separately versioned mode.
 ```text
 policy.N or the running policy
               |
-       libsepol C bridge
-              |
+     +--------+--------+
+     |                 |
+libsepol C bridge   pure Rust parser
+ (current loader)   (metadata slice)
+     |                 |
+     +--------+--------+
               v
       immutable Rust Policy
      symbols, rules, contexts,
@@ -83,7 +88,7 @@ Loading has two stages:
 2. Rust copies and normalizes those views into an owned `Policy`, then releases
    the native policy handle.
 
-This boundary permits a later `PureRustPolicyLoader` to produce the same model.
+This boundary permits the in-progress `PureRustPolicyLoader` to produce the same model.
 It also allows query execution to be parallelized without sharing a mutable
 `policydb`.
 
@@ -99,6 +104,7 @@ crates/
       bridge.h
     src/
   setools-policy/
+  setools-policy-binary/
   setools-query/
   setools-diff/
   setools-graph/
@@ -124,7 +130,7 @@ tests/
 
 `setools-sepol`
 
-- Build and link the C bridge and system `libsepol`/`libselinux`.
+- Build and link the C bridge and libsepol.
 - Own all raw native handles.
 - Translate native errors into typed Rust errors.
 - Expose safe iterators or snapshot-building operations to
@@ -140,6 +146,15 @@ tests/
 - Build indexes needed by queries and graph analysis.
 - Define a loader boundary that can support both libsepol and future pure
   Rust implementations.
+
+`setools-policy-binary`
+
+- Parse binary-policy data without C, FFI, or `unsafe`.
+- Enforce explicit section, count, string, and allocation limits.
+- Produce the same metadata and eventually the same complete owned `Policy` as
+  the libsepol loader.
+- Stay disconnected from CLI loader selection until complete snapshot
+  differential tests pass.
 
 `setools-query`
 
@@ -186,9 +201,9 @@ GPL-2.0-only model used by the current programs.
 
 ### 6.1 Why use a C bridge
 
-SETools traverses internal `policydb` structures that are not covered by the
-high-level `libselinux` API. Binding every structure from
-`sepol/policydb/policydb.h` directly would expose a large, version-sensitive C
+SETools traverses libsepol's internal `policydb` structures. Binding every
+structure from `sepol/policydb/policydb.h` directly would expose a large,
+version-sensitive C
 layout to Rust and spread unsafe pointer traversal through the project.
 
 A bridge compiled against the installed SELinux userspace headers creates a
@@ -239,7 +254,7 @@ This keeps the native policy read-only and reduces ownership hazards.
 
 ### 6.4 Build and version policy
 
-- Use `pkg-config` to locate the system libraries and `cc` to compile the
+- Use `pkg-config` to locate system libsepol and `cc` to compile the
   bridge.
 - Do not require bindgen or libclang for a normal build.
 - Initially support the same minimum libsepol version as the compatibility
@@ -247,8 +262,10 @@ This keeps the native policy read-only and reduces ownership hazards.
 - Test the minimum version, the latest stable version, and SELinux userspace
   `main` in CI.
 - Dynamic system linking is the default.
-- A vendored/static libsepol mode is optional future work and does not replace
-  the need for a pure Rust parser when C-free parsing is required.
+- A static-prefix mode builds the portable artifact with pinned libsepol 3.11;
+  it does not replace the pure Rust parser when C-free parsing is required.
+- Release automation rejects portable ELF files with any dynamic `NEEDED`
+  library and includes corresponding setools-rs and libsepol source.
 
 ## 7. Policy model
 
@@ -529,8 +546,8 @@ canonical expression keys.
 - Test failure cleanup for partially loaded policies and iterators.
 - Fuzz malformed policy input through the loader, recognizing that libsepol is
   still a C parser.
-- If a pure Rust parser is added, differentially test its produced `Policy`
-  against the libsepol loader and fuzz it independently.
+- Differentially test pure Rust metadata and eventually the produced `Policy`
+  against the libsepol loader, and fuzz it independently.
 
 ### 13.5 Compatibility matrix
 
@@ -658,10 +675,11 @@ fixtures.
 - Decide whether Python bindings, MCP support, or GUI integration use the Rust
   model directly or remain a separate compatibility layer.
 
-### M7: Optional pure Rust parser
+### M7: Pure Rust parser
 
-- Document the supported binary policy versions and targets.
-- Implement parsing behind a separate loader.
+- [Completed slice] Parse bounded SELinux/Xen kernel-policy metadata for
+  versions 15 through 35 behind a separate loader.
+- Decode compatibility tables, symbols, rules, constraints, and contexts.
 - Differentially compare full snapshots with libsepol.
 - Add parser-specific fuzzing and allocation limits.
 - Make the backend selectable until parity is demonstrated.
@@ -671,7 +689,7 @@ models and identical tool results under both backends.
 
 ## 17. Definition of done for the first Rust release
 
-- `sesearch`, `seinfo`, and `sediff` are installed as separate binaries.
+- All six compatible commands are installed as separate binaries.
 - Default CLI behavior is compatible with SETools 4.7.1 for the agreed matrix.
 - The native handle is released after creation of the owned `Policy`.
 - No raw libsepol type or pointer is exposed outside `setools-sepol`.
@@ -681,6 +699,8 @@ models and identical tool results under both backends.
   records results from the separately maintained differential harness.
 - C bridge sanitizer jobs pass.
 - Release artifacts include licenses, man pages, and dependency documentation.
+- The x86_64 Linux portable archive contains static PIE binaries with no ELF
+  `NEEDED` entries and includes corresponding source for rebuilding/relinking.
 - Performance and peak memory are measured against the recorded Python
   baseline, with material regressions documented before release.
 
@@ -697,9 +717,12 @@ Before implementation grows, record at least these decisions:
    v1 schemas are accepted in [ADR 0002](adr/0002-structured-output-v1.md).
 6. Generated documentation/completion metadata and drift checks are accepted in
    [ADR 0003](adr/0003-generated-cli-assets.md).
-7. Dynamic versus optional vendored libsepol builds.
+7. Dynamic versus pinned static libsepol builds are accepted in
+   [ADR 0004](adr/0004-portable-native-release.md).
 8. The public Rust API and crate publication policy.
 9. The threat model for untrusted binary policies.
+10. The pure Rust parser bootstrap and CLI cutover gate are accepted in
+    [ADR 0005](adr/0005-pure-rust-parser-bootstrap.md).
 
 The first implementation task after M0 should be a narrow vertical slice:
 load one compiled fixture, construct types/attributes/classes/allow rules, and

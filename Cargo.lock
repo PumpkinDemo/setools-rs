@@ -108,6 +108,13 @@ name = "setools-policy"
 version = "4.7.1"
 
 [[package]]
+name = "setools-policy-binary"
+version = "4.7.1"
+dependencies = [
+ "setools-policy",
+]
+
+[[package]]
 name = "setools-query"
 version = "4.7.1"
 dependencies = [
@@ -122,6 +129,7 @@ dependencies = [
  "cc",
  "pkg-config",
  "setools-policy",
+ "setools-policy-binary",
 ]
 
 [[package]]

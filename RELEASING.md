@@ -1,7 +1,8 @@
 # Releasing
 
-The project currently supports standalone source releases and Linux binaries
-for `sesearch`, `seinfo`, `sediff`, `sedta`, `seinfoflow`, and `sechecker`.
+The project currently supports standalone source releases and a portable
+x86_64 Linux static archive for `sesearch`, `seinfo`, `sediff`, `sedta`,
+`seinfoflow`, and `sechecker`.
 Crates.io publication remains disabled until the public library APIs stabilize.
 
 ## Release checklist
@@ -18,9 +19,17 @@ Crates.io publication remains disabled until the public library APIs stabilize.
    cargo build --release -p setools-cli --bin sesearch --bin seinfo --bin sediff --bin sedta --bin seinfoflow --bin sechecker
    ```
 
-3. Inspect the dynamic requirements with
-   `ldd target/release/sesearch` (and each other published binary) and record
-   the build distribution and libsepol/libselinux versions in the release notes.
+3. Build and smoke-test the portable archive against a representative policy:
+
+   ```bash
+   scripts/build-portable-release.sh --policy /path/to/policy
+   ```
+
+   This must create `dist/setools-rs-4.7.1-x86_64-linux-static.tar.gz` and its
+   checksum. Extract it into a fresh directory, run `sha256sum --check
+   SHA256SUMS`, and confirm `readelf -d bin/TOOL` has no `NEEDED` entry for all
+   six tools. Record the rustc, C compiler, target, and pinned libsepol version
+   from `BUILD-INFO.txt` in the release notes.
 4. On the benchmark host, run the default suite against the retained
    representative policy and archive the JSON with the release evidence:
 
@@ -48,7 +57,13 @@ Crates.io publication remains disabled until the public library APIs stabilize.
    sha256sum setools-rs-4.7.1.tar.gz
    ```
 
-If a binary archive is published, include `README.md`, `COPYING`, the two files
-under `LICENSES/`, all six files under `man/man1/`, and the Bash/Zsh/Fish files
-under `completions/` beside the published binaries. Do not label binaries from
-untested platforms as supported.
+7. Attach the portable archive and its `.sha256` file to the release. The
+   packaging script already includes `README.md`, `COPYING`, both license texts,
+   man pages, Bash/Zsh/Fish completions, the exact libsepol source, and the
+   setools-rs corresponding source with locked Cargo dependencies vendored for
+   offline rebuilds. Do not label untested architectures or platforms as
+   supported.
+
+The static artifact is intentionally separate from the default dynamic source
+build. Updating `LIBSEPOL_VERSION` or `LIBSEPOL_SHA256` requires a source,
+license, ABI, full-workspace, and real-policy review.

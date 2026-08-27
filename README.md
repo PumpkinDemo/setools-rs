@@ -4,8 +4,10 @@
 policy analysis tools. Its CLI compatibility target and version identity are
 SETools 4.7.1.
 
-The project does not depend on the Python/Cython SETools implementation. It
-builds from this repository using Rust, libsepol, and libselinux only.
+The project does not depend on the Python/Cython SETools implementation. A
+normal source build uses Rust and libsepol only; libselinux is not required.
+The published x86_64 Linux portable archive is a static PIE and needs none of
+those shared libraries on the target system.
 
 ## Status
 
@@ -55,19 +57,29 @@ disabled checks, output-file mode, verbose/debug diagnostics, and exit status.
 Its additive JSON mode provides typed check findings, evidence, disabled
 reasons, and summary counts.
 
+Pure Rust binary-policy parsing has started in the independent
+`setools-policy-binary` crate. The current bounded slice parses and validates
+SELinux/Xen kernel-policy metadata for versions 15 through 35 and is
+differentially tested against the libsepol loader. The CLIs intentionally keep
+using libsepol until the pure Rust loader can produce the complete owned model.
+Inspect that slice without any native loader using:
+
+```bash
+cargo run -p setools-policy-binary --example policy-header -- /path/to/policy
+```
+
 ## Requirements
 
 - Rust 1.85 or newer
 - a C compiler
 - `pkg-config`
 - libsepol 3.9 or newer, including development headers
-- libselinux, including development headers
 - `checkpolicy` only when running integration tests
 - Graphviz `dot` only when using `sedta --output_file` or
   `seinfoflow --output_file`
 
-The generated binaries are dynamically linked to libsepol and libselinux. The
-current implementation targets Linux systems with SELinux userspace libraries.
+The normal generated binaries are dynamically linked to libsepol. The source
+build no longer links libselinux or its PCRE2 dependency.
 
 ## Build
 
@@ -88,6 +100,27 @@ Build an optimized binary:
 ```bash
 cargo build --release -p setools-cli --bin sesearch --bin seinfo --bin sediff --bin sedta --bin seinfoflow --bin sechecker
 ```
+
+Build the publishable x86_64 Linux static archive:
+
+```bash
+scripts/build-portable-release.sh
+```
+
+The script downloads the official libsepol 3.11 source only when it is not
+cached, verifies its pinned SHA-256, statically links libsepol and the C/Rust
+runtime, and fails if any binary retains an ELF `NEEDED` entry. To additionally
+exercise the finished binaries against a policy during packaging:
+
+```bash
+scripts/build-portable-release.sh --policy /path/to/policy
+```
+
+The archive and checksum are written to `dist/`. It includes licenses, man
+pages, shell completions, per-file hashes, and corresponding setools-rs and
+libsepol source; the setools-rs source archive vendors the locked Cargo
+dependencies for offline rebuilds. See [the release guide](RELEASING.md) and
+[third-party notice](THIRD_PARTY.md).
 
 Cargo uses its standard output layout:
 
@@ -230,6 +263,7 @@ build or test dependencies of this project.
 | --- | --- |
 | `crates/setools-sepol` | project-owned C bridge and native loading |
 | `crates/setools-policy` | immutable owned policy model |
+| `crates/setools-policy-binary` | bounded pure Rust binary-policy parser |
 | `crates/setools-query` | query preparation and matching |
 | `crates/setools-checker` | configuration-driven policy checks |
 | `crates/setools-diff` | semantic policy comparison |
@@ -245,9 +279,9 @@ build or test dependencies of this project.
 ## Publication state
 
 This repository can be cloned, built, tested, tagged, and released on its own.
-The internal crates currently set `publish = false`: source and binary releases
-are supported, while crates.io publication is deferred until the library APIs
-and remaining commands are stable. See [RELEASING.md](RELEASING.md).
+The x86_64 Linux static archive is the first portable binary distribution. The
+internal crates currently set `publish = false`: crates.io publication is
+deferred until the library APIs stabilize. See [RELEASING.md](RELEASING.md).
 
 ## License
 

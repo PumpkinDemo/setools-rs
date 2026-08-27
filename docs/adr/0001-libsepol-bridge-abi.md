@@ -68,9 +68,15 @@ and CLI crates therefore never depend on native pointers or lifetimes.
 The bridge includes public libsepol APIs for allocation and loading and
 contains any required internal `policydb` access in `bridge.c`. It is compiled
 with the `cc` crate. Normal system discovery uses `pkg-config` and requires
-libsepol 3.9 or newer. Development environments may set `USERSPACE_SRC` to
-compile and link against an explicit SELinux userspace source build outside
-the repository.
+libsepol 3.9 or newer; libselinux is not linked. Development environments may
+set `USERSPACE_SRC` to compile and link against an explicit SELinux userspace
+source build outside the repository. Bridge ABI 6 moves running-policy
+filesystem/config discovery to safe Rust and retains only scalar libsepol
+version limits in the C ABI.
+
+Portable release builds may instead set `SETOOLS_LIBSEPOL_STATIC_ROOT` to a
+verified prefix containing the libsepol headers and static archive, as recorded
+in ADR 0004.
 
 All numeric values read from C are validated before constructing Rust enums or
 IDs. A new libsepol value therefore produces an explicit loader error instead

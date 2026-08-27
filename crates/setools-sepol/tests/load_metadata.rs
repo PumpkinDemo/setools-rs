@@ -4,6 +4,7 @@ use setools_policy::{
     ConditionalToken, HandleUnknown, PolicyLoader, RbacRuleData, TargetPlatform, TeRuleData,
     TeRuleKind,
 };
+use setools_policy_binary::PureRustMetadataLoader;
 use setools_sepol::LibsepolLoader;
 use std::env;
 use std::path::{Path, PathBuf};
@@ -139,6 +140,11 @@ fn loads_owned_metadata_from_binary_policy() {
     assert!(policy.metadata().mls);
     assert_eq!(policy.metadata().target, TargetPlatform::Selinux);
     assert_eq!(policy.metadata().handle_unknown, HandleUnknown::Reject);
+
+    let pure_rust_header = PureRustMetadataLoader
+        .load(&compiled.0)
+        .expect("the pure Rust metadata parser must accept the same policy");
+    assert_eq!(pure_rust_header.metadata(), policy.metadata());
 
     assert_eq!(policy.type_symbols().len(), 72);
     assert_eq!(

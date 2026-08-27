@@ -10,7 +10,7 @@
 extern "C" {
 #endif
 
-#define ST_BRIDGE_ABI_VERSION 5U
+#define ST_BRIDGE_ABI_VERSION 6U
 
 typedef struct st_policy st_policy;
 
@@ -40,13 +40,10 @@ typedef struct st_string_view {
     size_t length;
 } st_string_view;
 
-typedef struct st_running_policy_info {
-    uint32_t selinuxfs_exists;
+typedef struct st_policy_version_info {
     uint32_t minimum_version;
     uint32_t maximum_version;
-    st_string_view current_policy_path;
-    st_string_view binary_policy_path;
-} st_running_policy_info;
+} st_policy_version_info;
 
 typedef enum st_type_kind {
     ST_TYPE = 0,
@@ -190,7 +187,7 @@ uint32_t st_bridge_abi_version(void);
 
 int32_t st_process_use_default_sigpipe(void);
 
-int32_t st_running_policy_info_get(st_running_policy_info *info);
+int32_t st_policy_version_info_get(st_policy_version_info *info);
 
 int32_t st_local_log_timestamp(char *buffer, size_t capacity);
 

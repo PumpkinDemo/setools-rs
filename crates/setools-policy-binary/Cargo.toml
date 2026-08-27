@@ -1,0 +1,15 @@
+[package]
+name = "setools-policy-binary"
+description = "Memory-safe SELinux binary policy parser for setools-rs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license = "LGPL-2.1-only"
+publish = false
+
+[dependencies]
+setools-policy = { path = "../setools-policy" }
+
+[lints]
+workspace = true
