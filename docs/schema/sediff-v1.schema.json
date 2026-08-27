@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "setools-rs sediff structured output v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "tool",
+    "policy",
+    "query",
+    "result_count",
+    "results"
+  ],
+  "properties": {
+    "schema": {
+      "const": "setools-rs.sediff"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "const": "sediff"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["left_path", "right_path"],
+      "properties": {
+        "left_path": {
+          "type": "string"
+        },
+        "right_path": {
+          "type": "string"
+        }
+      }
+    },
+    "query": {
+      "$ref": "#/$defs/query"
+    },
+    "result_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/result"
+      }
+    }
+  },
+  "$defs": {
+    "component": {
+      "enum": [
+        "property",
+        "polcap",
+        "common",
+        "class",
+        "default",
+        "boolean",
+        "role",
+        "type",
+        "typebounds",
+        "attribute",
+        "user",
+        "category",
+        "sensitivity",
+        "level",
+        "allow",
+        "allowxperm",
+        "auditallow",
+        "auditallowxperm",
+        "dontaudit",
+        "dontauditxperm",
+        "type_transition",
+        "type_change",
+        "type_member",
+        "role_allow",
+        "role_transition",
+        "range_transition",
+        "constrain",
+        "mlsconstrain",
+        "validatetrans",
+        "mlsvalidatetrans",
+        "initialsid",
+        "ibendportcon",
+        "ibpkeycon",
+        "fs_use",
+        "genfscon",
+        "netifcon",
+        "nodecon",
+        "portcon"
+      ]
+    },
+    "query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["all", "stats", "components"],
+      "properties": {
+        "all": {
+          "type": "boolean"
+        },
+        "stats": {
+          "type": "boolean"
+        },
+        "components": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/component"
+          }
+        }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["added", "removed", "modified"],
+      "properties": {
+        "added": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "removed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "modified": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "modified_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "details"],
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "component",
+        "description",
+        "counts",
+        "added",
+        "removed",
+        "modified"
+      ],
+      "properties": {
+        "component": {
+          "$ref": "#/$defs/component"
+        },
+        "description": {
+          "type": "string"
+        },
+        "counts": {
+          "$ref": "#/$defs/counts"
+        },
+        "added": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "removed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "modified": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/modified_item"
+          }
+        }
+      }
+    }
+  }
+}

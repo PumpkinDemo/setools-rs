@@ -1,0 +1,288 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "setools-rs sedta structured output v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "tool",
+    "policy",
+    "query",
+    "result_type",
+    "statistics",
+    "result_count",
+    "results"
+  ],
+  "properties": {
+    "schema": {
+      "const": "setools-rs.sedta"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "const": "sedta"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      }
+    },
+    "query": {
+      "$ref": "#/$defs/query"
+    },
+    "result_type": {
+      "enum": ["transition", "path"]
+    },
+    "statistics": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/statistics"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "result_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/transition_result"
+          },
+          {
+            "$ref": "#/$defs/path_result"
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "source",
+        "target",
+        "reverse",
+        "max_steps",
+        "limit",
+        "exclude",
+        "full",
+        "stats"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "transitions_out",
+            "transitions_in",
+            "shortest_paths",
+            "all_paths"
+          ]
+        },
+        "source": {
+          "type": "string"
+        },
+        "target": {
+          "type": ["string", "null"]
+        },
+        "reverse": {
+          "type": "boolean"
+        },
+        "max_steps": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "full": {
+          "type": "boolean"
+        },
+        "stats": {
+          "type": "boolean"
+        }
+      }
+    },
+    "statistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodes", "edges"],
+      "properties": {
+        "nodes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "edges": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "entrypoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "entrypoint_rules",
+        "execute_rules",
+        "type_transition_rules"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "entrypoint_rules": {
+          "$ref": "#/$defs/rules"
+        },
+        "execute_rules": {
+          "$ref": "#/$defs/rules"
+        },
+        "type_transition_rules": {
+          "$ref": "#/$defs/rules"
+        }
+      }
+    },
+    "details": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "transition_rules",
+        "setexec_rules",
+        "entrypoints",
+        "dyntransition_rules",
+        "setcurrent_rules"
+      ],
+      "properties": {
+        "transition_rules": {
+          "$ref": "#/$defs/rules"
+        },
+        "setexec_rules": {
+          "$ref": "#/$defs/rules"
+        },
+        "entrypoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/entrypoint"
+          }
+        },
+        "dyntransition_rules": {
+          "$ref": "#/$defs/rules"
+        },
+        "setcurrent_rules": {
+          "$ref": "#/$defs/rules"
+        }
+      }
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "target", "details"],
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "details": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/details"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "transition_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "source", "target", "details"],
+      "properties": {
+        "kind": {
+          "const": "transition"
+        },
+        "source": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "details": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/details"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "path_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "step_count", "steps"],
+      "properties": {
+        "kind": {
+          "const": "path"
+        },
+        "step_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/transition"
+          }
+        }
+      }
+    }
+  }
+}

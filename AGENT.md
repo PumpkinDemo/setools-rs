@@ -70,8 +70,29 @@ CLI 兼容目标是 SETools 4.7.1。新格式或 API 只能作为附加能力引
 - M6 `seinfo` structured-output v1 已完成：typed statistics 与全部 SELinux/Xen
   component section 使用稳定 ID，query 记录 all/expand/flat/explicit criteria；产品
   tests、外层 37-case matrix 和真实 `policy` JSON parse 均通过。
-- M6 尚未整体关闭；下一工作包是为 `sediff` 定义 command-specific JSON v1，先实现
-  property/simple-symbol diff 的最小垂直切片。
+- M6 `sediff` structured-output v1 已完成：全部 38 个 component 直接消费 canonical
+  semantic diff，记录双 policy、query、added/removed/modified counts 与明细；显式空
+  component、默认 all 和 `--stats` 均已冻结。产品 tests、外层 64-case matrix 和真实
+  `policy` JSON parse 均通过。
+- M6 `sedta` structured-output v1 已完成：typed transition/path results 覆盖正反向、
+  shortest/all paths、limit/exclude、full rule provenance、graph statistics 与空结果；
+  `--json` 和 Graphviz `--output_file` 明确互斥。产品 tests、外层 37-case matrix 和真实
+  `policy` JSON parse 均通过。
+- M6 `seinfoflow` structured-output v1 已完成：weighted flow/path results 覆盖正反向、
+  shortest/all paths、limit/exclude、permission-map 来源、Boolean 三态、full contributing
+  rules、graph statistics 与空结果；`--json` 和 Graphviz `--output_file` 明确互斥。产品
+  tests、外层 55-case matrix 和真实 `policy` JSON parse 均通过。
+- M6 `sechecker` structured-output v1 已完成：typed check results 覆盖五类 registry、
+  pass/fail/disabled、summary、canonical rule/missing/writable-file evidence；clean/status 0
+  与 findings/status 1 都输出完整 JSON，配置/运行错误保持文本。产品 tests、外层
+  44-case matrix 和真实 `policy` JSON parse 均通过。
+- M6 completion/man-page 发布配套已完成：ADR 0003 规定六份 frozen help asset 为
+  binary 与生成器共享的公开 CLI metadata；dependency-free `setools-xtask` 生成并检查
+  6 个 man1 page 与 Bash/Zsh/Fish completion，共 24 个 committed asset。隐藏的
+  `--json` 由生成器显式补入，兼容 help/parser 不变。
+- 六个 CLI 的 command-specific JSON v1 与发布文档资产均已完成；M6 尚未整体关闭，
+  只剩 Python binding、MCP、GUI 的后续集成边界决策。下一最小工作包回到 M0，冻结
+  policy load/query benchmark 命令并记录 Rust wall time 与 peak RSS。
 
 常用验证命令：
 
@@ -79,6 +100,7 @@ CLI 兼容目标是 SETools 4.7.1。新格式或 API 只能作为附加能力引
 cargo fmt --all --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
+cargo run -p setools-xtask -- check
 cargo build --release -p setools-cli --bin sesearch --bin seinfo --bin sediff --bin sedta --bin seinfoflow --bin sechecker
 ```
 

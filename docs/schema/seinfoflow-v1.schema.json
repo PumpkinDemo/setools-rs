@@ -1,0 +1,307 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "setools-rs seinfoflow structured output v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "tool",
+    "policy",
+    "query",
+    "result_type",
+    "statistics",
+    "result_count",
+    "results"
+  ],
+  "properties": {
+    "schema": {
+      "const": "setools-rs.seinfoflow"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "const": "seinfoflow"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      }
+    },
+    "query": {
+      "$ref": "#/$defs/query"
+    },
+    "result_type": {
+      "enum": ["flow", "path"]
+    },
+    "statistics": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/statistics"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "result_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/flow_result"
+          },
+          {
+            "$ref": "#/$defs/path_result"
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "source",
+        "target",
+        "reverse",
+        "max_steps",
+        "minimum_weight",
+        "limit",
+        "exclude",
+        "booleans",
+        "permission_map",
+        "full",
+        "stats"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "flows_out",
+            "flows_in",
+            "shortest_paths",
+            "all_paths"
+          ]
+        },
+        "source": {
+          "type": "string"
+        },
+        "target": {
+          "type": ["string", "null"]
+        },
+        "reverse": {
+          "type": "boolean"
+        },
+        "max_steps": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "minimum_weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "booleans": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/booleans"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "permission_map": {
+          "$ref": "#/$defs/permission_map"
+        },
+        "full": {
+          "type": "boolean"
+        },
+        "stats": {
+          "type": "boolean"
+        }
+      }
+    },
+    "boolean_value": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "state"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "state": {
+          "type": "boolean"
+        }
+      }
+    },
+    "booleans": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "values"],
+      "properties": {
+        "mode": {
+          "enum": ["default", "assignments"]
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/boolean_value"
+          }
+        }
+      }
+    },
+    "permission_map": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path"],
+      "properties": {
+        "kind": {
+          "enum": ["built_in", "file"]
+        },
+        "path": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "statistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodes", "edges"],
+      "properties": {
+        "nodes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "edges": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "flow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "target", "weight", "rules"],
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "rules": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/rules"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "flow_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "source", "target", "weight", "rules"],
+      "properties": {
+        "kind": {
+          "const": "flow"
+        },
+        "source": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "rules": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/rules"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "path_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "step_count", "steps"],
+      "properties": {
+        "kind": {
+          "const": "path"
+        },
+        "step_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/flow"
+          }
+        }
+      }
+    }
+  }
+}

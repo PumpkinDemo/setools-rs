@@ -1,0 +1,12 @@
+[package]
+name = "setools-xtask"
+description = "Development and release asset generator for setools-rs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license = "GPL-2.0-only"
+publish = false
+
+[lints]
+workspace = true

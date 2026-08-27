@@ -1,8 +1,9 @@
 //! `sediff` argument parsing and compatibility rendering.
 
+use crate::json;
 use setools_diff::{
-    CompatibilityDifference, ComponentDifference, ModifiedAliases, NameSetDifference, PolicyDiff,
-    PropertyValue,
+    CompatibilityDifference, ComponentDifference, ModifiedAliases, ModifiedBoolean,
+    ModifiedTypeAttribute, NameSetDifference, PolicyDiff, PropertyChange, PropertyValue,
 };
 use setools_policy::{ConstraintKind, HandleUnknown, Policy, PolicyLoader, TeRuleKind};
 use setools_sepol::{LibsepolLoader, LoadError, local_log_timestamp, use_default_sigpipe};
@@ -29,6 +30,7 @@ const USAGE: &str = r"usage: sediff [-h] [--version] [--stats] [-v] [--debug] [-
 #[derive(Debug, Default)]
 struct Options {
     policies: Vec<PathBuf>,
+    json: bool,
     stats: bool,
     verbose: bool,
     debug: bool,
@@ -160,8 +162,798 @@ pub(crate) fn run(arguments: Vec<OsString>) -> ExitCode {
     log_diff_resets(&options);
 
     let diff = PolicyDiff::new(&left, &right);
-    let output = render_selected(&diff, left_path, right_path, &options);
+    let output = if options.json {
+        render_selected_json(&diff, left_path, right_path, &options)
+    } else {
+        render_selected(&diff, left_path, right_path, &options)
+    };
     write_stdout(&output)
+}
+
+#[derive(Debug)]
+struct JsonModifiedItem {
+    summary: String,
+    details: Vec<String>,
+}
+
+#[derive(Debug)]
+struct JsonDifference {
+    component: &'static str,
+    description: &'static str,
+    added: Vec<String>,
+    removed: Vec<String>,
+    modified: Vec<JsonModifiedItem>,
+}
+
+impl JsonDifference {
+    fn count(&self) -> usize {
+        self.added.len() + self.removed.len() + self.modified.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.count() == 0
+    }
+}
+
+fn render_selected_json(
+    diff: &PolicyDiff<'_>,
+    left_path: &Path,
+    right_path: &Path,
+    options: &Options,
+) -> String {
+    let differences = collect_json_differences(diff, left_path, right_path, options);
+    render_json(options, left_path, right_path, &differences)
+}
+
+fn collect_json_differences(
+    diff: &PolicyDiff<'_>,
+    left_path: &Path,
+    right_path: &Path,
+    options: &Options,
+) -> Vec<JsonDifference> {
+    let mut differences = Vec::new();
+    let all = !options.has_component_selection();
+
+    if all || options.property {
+        let difference = json_property_difference(diff.properties());
+        push_json_difference(&mut differences, all, options.property, difference);
+    }
+    if all || options.polcap {
+        log_generation(options, "policy cap", left_path, right_path);
+        let difference =
+            json_name_set_difference("polcap", "Policy Capabilities", diff.policy_capabilities());
+        push_json_difference(&mut differences, all, options.polcap, difference);
+    }
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.common,
+        options,
+        left_path,
+        right_path,
+        "common",
+        "common",
+        "Commons",
+        || diff.commons(),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.class,
+        options,
+        left_path,
+        right_path,
+        "class",
+        "class",
+        "Classes",
+        || diff.classes(),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.default_,
+        options,
+        left_path,
+        right_path,
+        "default_*",
+        "default",
+        "Defaults",
+        || diff.defaults(),
+    );
+    if all || options.boolean {
+        log_generation(options, "Boolean", left_path, right_path);
+        let difference = json_boolean_difference(diff.booleans());
+        push_json_difference(&mut differences, all, options.boolean, difference);
+    }
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.role,
+        options,
+        left_path,
+        right_path,
+        "role",
+        "role",
+        "Roles",
+        || diff.roles(),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.type_,
+        options,
+        left_path,
+        right_path,
+        "type",
+        "type",
+        "Types",
+        || diff.types(),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.typebounds,
+        options,
+        left_path,
+        right_path,
+        "typebounds",
+        "typebounds",
+        "Typebounds",
+        || diff.typebounds(),
+    );
+    if all || options.attribute {
+        log_generation(options, "type attribute", left_path, right_path);
+        let difference = json_attribute_difference(diff.type_attributes());
+        push_json_difference(&mut differences, all, options.attribute, difference);
+    }
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.user,
+        options,
+        left_path,
+        right_path,
+        "user",
+        "user",
+        "Users",
+        || diff.users(),
+    );
+    if all || options.category {
+        log_generation(options, "category", left_path, right_path);
+        let difference = json_alias_difference("category", "Categories", diff.categories());
+        push_json_difference(&mut differences, all, options.category, difference);
+    }
+    if all || options.sensitivity {
+        log_generation(options, "sensitivity", left_path, right_path);
+        let difference =
+            json_alias_difference("sensitivity", "Sensitivities", diff.sensitivities());
+        push_json_difference(&mut differences, all, options.sensitivity, difference);
+    }
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.level,
+        options,
+        left_path,
+        right_path,
+        "level decl",
+        "level",
+        "Levels",
+        || diff.levels(),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.allow,
+        options,
+        left_path,
+        right_path,
+        "allow",
+        "allow",
+        "Allow Rules",
+        || diff.av_rules(TeRuleKind::Allow),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.allowxperm,
+        options,
+        left_path,
+        right_path,
+        "allowxperm",
+        "allowxperm",
+        "Allowxperm Rules",
+        || diff.xperm_rules(TeRuleKind::AllowXperm),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.auditallow,
+        options,
+        left_path,
+        right_path,
+        "auditallow",
+        "auditallow",
+        "Auditallow Rules",
+        || diff.av_rules(TeRuleKind::AuditAllow),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.auditallowxperm,
+        options,
+        left_path,
+        right_path,
+        "auditallowxperm",
+        "auditallowxperm",
+        "Auditallowxperm Rules",
+        || diff.xperm_rules(TeRuleKind::AuditAllowXperm),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.dontaudit,
+        options,
+        left_path,
+        right_path,
+        "dontaudit",
+        "dontaudit",
+        "Dontaudit Rules",
+        || diff.av_rules(TeRuleKind::DontAudit),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.dontauditxperm,
+        options,
+        left_path,
+        right_path,
+        "dontauditxperm",
+        "dontauditxperm",
+        "Dontauditxperm Rules",
+        || diff.xperm_rules(TeRuleKind::DontAuditXperm),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.type_trans,
+        options,
+        left_path,
+        right_path,
+        "type_transition",
+        "type_transition",
+        "Type_transition Rules",
+        || diff.type_rules(TeRuleKind::TypeTransition),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.type_change,
+        options,
+        left_path,
+        right_path,
+        "type_change",
+        "type_change",
+        "Type_change Rules",
+        || diff.type_rules(TeRuleKind::TypeChange),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.type_member,
+        options,
+        left_path,
+        right_path,
+        "type_member",
+        "type_member",
+        "Type_member Rules",
+        || diff.type_rules(TeRuleKind::TypeMember),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.role_allow,
+        options,
+        left_path,
+        right_path,
+        "role allow",
+        "role_allow",
+        "Role allow Rules",
+        || diff.role_allows(),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.role_trans,
+        options,
+        left_path,
+        right_path,
+        "role_transition",
+        "role_transition",
+        "Role_transition Rules",
+        || diff.role_transitions(),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.range_trans,
+        options,
+        left_path,
+        right_path,
+        "range_transition",
+        "range_transition",
+        "Range_transition Rules",
+        || diff.range_transitions(),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.constrain,
+        options,
+        left_path,
+        right_path,
+        "constraint",
+        "constrain",
+        "Constraints",
+        || diff.constraints(ConstraintKind::Constrain),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.mlsconstrain,
+        options,
+        left_path,
+        right_path,
+        "MLS constraint",
+        "mlsconstrain",
+        "MLS Constraints",
+        || diff.constraints(ConstraintKind::MlsConstrain),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.validatetrans,
+        options,
+        left_path,
+        right_path,
+        "validatetrans",
+        "validatetrans",
+        "Validatetrans",
+        || diff.constraints(ConstraintKind::ValidateTransition),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.mlsvalidatetrans,
+        options,
+        left_path,
+        right_path,
+        "mlsvalidatetrans",
+        "mlsvalidatetrans",
+        "MLS Validatetrans",
+        || diff.constraints(ConstraintKind::MlsValidateTransition),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.initialsid,
+        options,
+        left_path,
+        right_path,
+        "initial SID",
+        "initialsid",
+        "Initial SIDs",
+        || diff.initial_sids(),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.ibendportcon,
+        options,
+        left_path,
+        right_path,
+        "ibendportcon",
+        "ibendportcon",
+        "Ibendportcons",
+        || diff.ibendportcons(),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.ibpkeycon,
+        options,
+        left_path,
+        right_path,
+        "ibpkeycon",
+        "ibpkeycon",
+        "Ibpkeycons",
+        || diff.ibpkeycons(),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.fs_use,
+        options,
+        left_path,
+        right_path,
+        "fs_use_*",
+        "fs_use",
+        "Fs_use",
+        || diff.fs_uses(),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.genfscon,
+        options,
+        left_path,
+        right_path,
+        "genfscon",
+        "genfscon",
+        "Genfscons",
+        || diff.genfscons(),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.netifcon,
+        options,
+        left_path,
+        right_path,
+        "netifcon",
+        "netifcon",
+        "Netifcons",
+        || diff.netifcons(),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.nodecon,
+        options,
+        left_path,
+        right_path,
+        "nodecon",
+        "nodecon",
+        "Nodecons",
+        || diff.nodecons(),
+    );
+    collect_json_compatibility(
+        &mut differences,
+        all,
+        options.portcon,
+        options,
+        left_path,
+        right_path,
+        "portcon",
+        "portcon",
+        "Portcons",
+        || diff.portcons(),
+    );
+
+    differences
+}
+
+fn push_json_difference(
+    differences: &mut Vec<JsonDifference>,
+    all: bool,
+    selected: bool,
+    difference: JsonDifference,
+) {
+    if selected || (all && !difference.is_empty()) {
+        differences.push(difference);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_json_compatibility<Build>(
+    differences: &mut Vec<JsonDifference>,
+    all: bool,
+    selected: bool,
+    options: &Options,
+    left_path: &Path,
+    right_path: &Path,
+    generation_name: &str,
+    component: &'static str,
+    description: &'static str,
+    build: Build,
+) where
+    Build: FnOnce() -> CompatibilityDifference,
+{
+    if !all && !selected {
+        return;
+    }
+    log_generation(options, generation_name, left_path, right_path);
+    log_av_expansion(options, generation_name, left_path, right_path);
+    let difference = json_compatibility_difference(component, description, build());
+    push_json_difference(differences, all, selected, difference);
+}
+
+fn json_property_difference(changes: Vec<PropertyChange>) -> JsonDifference {
+    JsonDifference {
+        component: "property",
+        description: "Policy Properties",
+        added: Vec::new(),
+        removed: Vec::new(),
+        modified: changes
+            .into_iter()
+            .map(|change| JsonModifiedItem {
+                summary: change.property().to_owned(),
+                details: vec![
+                    format!("+{}", render_property_value(change.added())),
+                    format!("-{}", render_property_value(change.removed())),
+                ],
+            })
+            .collect(),
+    }
+}
+
+fn json_name_set_difference(
+    component: &'static str,
+    description: &'static str,
+    difference: NameSetDifference,
+) -> JsonDifference {
+    JsonDifference {
+        component,
+        description,
+        added: difference.added().to_vec(),
+        removed: difference.removed().to_vec(),
+        modified: Vec::new(),
+    }
+}
+
+fn json_compatibility_difference(
+    component: &'static str,
+    description: &'static str,
+    difference: CompatibilityDifference,
+) -> JsonDifference {
+    JsonDifference {
+        component,
+        description,
+        added: difference.added().to_vec(),
+        removed: difference.removed().to_vec(),
+        modified: difference
+            .modified()
+            .iter()
+            .map(|item| JsonModifiedItem {
+                summary: item.summary().to_owned(),
+                details: item
+                    .detail_lines()
+                    .iter()
+                    .map(|line| line.trim_start().to_owned())
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
+fn json_boolean_difference(difference: ComponentDifference<ModifiedBoolean>) -> JsonDifference {
+    JsonDifference {
+        component: "boolean",
+        description: "Booleans",
+        added: difference.added().to_vec(),
+        removed: difference.removed().to_vec(),
+        modified: difference
+            .modified()
+            .iter()
+            .map(|item| JsonModifiedItem {
+                summary: format!("{} (Modified default state)", item.name()),
+                details: vec![
+                    format!("+ {}", python_boolean(item.added_state())),
+                    format!("- {}", python_boolean(item.removed_state())),
+                ],
+            })
+            .collect(),
+    }
+}
+
+fn json_attribute_difference(
+    difference: ComponentDifference<ModifiedTypeAttribute>,
+) -> JsonDifference {
+    JsonDifference {
+        component: "attribute",
+        description: "Type Attributes",
+        added: difference.added().to_vec(),
+        removed: difference.removed().to_vec(),
+        modified: difference
+            .modified()
+            .iter()
+            .map(|item| {
+                let mut changes = Vec::new();
+                if !item.added_types().is_empty() {
+                    changes.push(format!("{} Added types", item.added_types().len()));
+                }
+                if !item.removed_types().is_empty() {
+                    changes.push(format!("{} Removed types", item.removed_types().len()));
+                }
+                JsonModifiedItem {
+                    summary: format!("{} ({})", item.name(), changes.join(", ")),
+                    details: item
+                        .added_types()
+                        .iter()
+                        .map(|name| format!("+ {name}"))
+                        .chain(item.removed_types().iter().map(|name| format!("- {name}")))
+                        .collect(),
+                }
+            })
+            .collect(),
+    }
+}
+
+fn json_alias_difference(
+    component: &'static str,
+    description: &'static str,
+    difference: ComponentDifference<ModifiedAliases>,
+) -> JsonDifference {
+    JsonDifference {
+        component,
+        description,
+        added: difference.added().to_vec(),
+        removed: difference.removed().to_vec(),
+        modified: difference
+            .modified()
+            .iter()
+            .map(|item| {
+                let mut changes = Vec::new();
+                if !item.added_aliases().is_empty() {
+                    changes.push(format!("{} Added Aliases", item.added_aliases().len()));
+                }
+                if !item.removed_aliases().is_empty() {
+                    changes.push(format!("{} Removed Aliases", item.removed_aliases().len()));
+                }
+                JsonModifiedItem {
+                    summary: format!("{} ({})", item.name(), changes.join(", ")),
+                    details: std::iter::once("Aliases:".to_owned())
+                        .chain(
+                            item.added_aliases()
+                                .iter()
+                                .map(|alias| format!("+ {alias}")),
+                        )
+                        .chain(
+                            item.removed_aliases()
+                                .iter()
+                                .map(|alias| format!("- {alias}")),
+                        )
+                        .collect(),
+                }
+            })
+            .collect(),
+    }
+}
+
+fn render_json(
+    options: &Options,
+    left_path: &Path,
+    right_path: &Path,
+    differences: &[JsonDifference],
+) -> String {
+    let mut output = String::new();
+    output.push_str(
+        "{\"schema\":\"setools-rs.sediff\",\"schema_version\":1,\"tool\":{\"name\":\"sediff\",\"version\":",
+    );
+    json::push_string(&mut output, env!("CARGO_PKG_VERSION"));
+    output.push_str("},\"policy\":{\"left_path\":");
+    json::push_string(&mut output, &left_path.to_string_lossy());
+    output.push_str(",\"right_path\":");
+    json::push_string(&mut output, &right_path.to_string_lossy());
+    output.push_str("},\"query\":{\"all\":");
+    output.push_str(json_boolean(!options.has_component_selection()));
+    output.push_str(",\"stats\":");
+    output.push_str(json_boolean(options.stats));
+    output.push_str(",\"components\":[");
+    push_json_query_components(&mut output, options);
+    output.push_str("]},\"result_count\":");
+    output.push_str(
+        &differences
+            .iter()
+            .map(JsonDifference::count)
+            .sum::<usize>()
+            .to_string(),
+    );
+    output.push_str(",\"results\":[");
+    for (index, difference) in differences.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"component\":");
+        json::push_string(&mut output, difference.component);
+        output.push_str(",\"description\":");
+        json::push_string(&mut output, difference.description);
+        output.push_str(",\"counts\":{\"added\":");
+        output.push_str(&difference.added.len().to_string());
+        output.push_str(",\"removed\":");
+        output.push_str(&difference.removed.len().to_string());
+        output.push_str(",\"modified\":");
+        output.push_str(&difference.modified.len().to_string());
+        output.push_str("},\"added\":[");
+        if !options.stats {
+            push_json_strings(&mut output, &difference.added);
+        }
+        output.push_str("],\"removed\":[");
+        if !options.stats {
+            push_json_strings(&mut output, &difference.removed);
+        }
+        output.push_str("],\"modified\":[");
+        if !options.stats {
+            for (modified_index, modified) in difference.modified.iter().enumerate() {
+                if modified_index > 0 {
+                    output.push(',');
+                }
+                output.push_str("{\"summary\":");
+                json::push_string(&mut output, &modified.summary);
+                output.push_str(",\"details\":[");
+                push_json_strings(&mut output, &modified.details);
+                output.push_str("]}");
+            }
+        }
+        output.push_str("]}");
+    }
+    output.push_str("]}\n");
+    output
+}
+
+fn push_json_query_components(output: &mut String, options: &Options) {
+    let mut first = true;
+    for (component, selected) in [
+        ("property", options.property),
+        ("polcap", options.polcap),
+        ("common", options.common),
+        ("class", options.class),
+        ("default", options.default_),
+        ("boolean", options.boolean),
+        ("role", options.role),
+        ("type", options.type_),
+        ("typebounds", options.typebounds),
+        ("attribute", options.attribute),
+        ("user", options.user),
+        ("category", options.category),
+        ("sensitivity", options.sensitivity),
+        ("level", options.level),
+        ("allow", options.allow),
+        ("allowxperm", options.allowxperm),
+        ("auditallow", options.auditallow),
+        ("auditallowxperm", options.auditallowxperm),
+        ("dontaudit", options.dontaudit),
+        ("dontauditxperm", options.dontauditxperm),
+        ("type_transition", options.type_trans),
+        ("type_change", options.type_change),
+        ("type_member", options.type_member),
+        ("role_allow", options.role_allow),
+        ("role_transition", options.role_trans),
+        ("range_transition", options.range_trans),
+        ("constrain", options.constrain),
+        ("mlsconstrain", options.mlsconstrain),
+        ("validatetrans", options.validatetrans),
+        ("mlsvalidatetrans", options.mlsvalidatetrans),
+        ("initialsid", options.initialsid),
+        ("ibendportcon", options.ibendportcon),
+        ("ibpkeycon", options.ibpkeycon),
+        ("fs_use", options.fs_use),
+        ("genfscon", options.genfscon),
+        ("netifcon", options.netifcon),
+        ("nodecon", options.nodecon),
+        ("portcon", options.portcon),
+    ] {
+        if selected {
+            if !first {
+                output.push(',');
+            }
+            first = false;
+            json::push_string(output, component);
+        }
+    }
+}
+
+fn push_json_strings(output: &mut String, values: &[String]) {
+    for (index, value) in values.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        json::push_string(output, value);
+    }
+}
+
+const fn json_boolean(value: bool) -> &'static str {
+    if value { "true" } else { "false" }
 }
 
 fn render_selected(
@@ -637,32 +1429,7 @@ fn compat_section<Build>(
         return;
     }
     log_generation(options, generation_name, left_path, right_path);
-    if matches!(generation_name, "allow" | "auditallow" | "dontaudit") {
-        log_message(
-            options,
-            "INFO",
-            "setools.diff.terules",
-            &format!("Expanding AV rules from {}.", left_path.display()),
-        );
-        log_message(
-            options,
-            "INFO",
-            "setools.diff.terules",
-            &format!("Expanding AV rules from {}.", right_path.display()),
-        );
-        log_message(
-            options,
-            "INFO",
-            "setools.diff.terules",
-            "Removing redundant AV rules.",
-        );
-        log_message(
-            options,
-            "INFO",
-            "setools.diff.terules",
-            "Generating AV rule diff.",
-        );
-    }
+    log_av_expansion(options, generation_name, left_path, right_path);
     let difference = build();
     if selected || !difference.is_empty() {
         render_compatibility_difference(output, heading, item_name, &difference, options.stats);
@@ -1065,6 +1832,36 @@ fn log_generation(options: &Options, component: &str, left: &Path, right: &Path)
     );
 }
 
+fn log_av_expansion(options: &Options, component: &str, left: &Path, right: &Path) {
+    if !matches!(component, "allow" | "auditallow" | "dontaudit") {
+        return;
+    }
+    log_message(
+        options,
+        "INFO",
+        "setools.diff.terules",
+        &format!("Expanding AV rules from {}.", left.display()),
+    );
+    log_message(
+        options,
+        "INFO",
+        "setools.diff.terules",
+        &format!("Expanding AV rules from {}.", right.display()),
+    );
+    log_message(
+        options,
+        "INFO",
+        "setools.diff.terules",
+        "Removing redundant AV rules.",
+    );
+    log_message(
+        options,
+        "INFO",
+        "setools.diff.terules",
+        "Generating AV rule diff.",
+    );
+}
+
 fn log_message(options: &Options, level: &str, module: &str, message: &str) {
     if options.debug {
         if let Some(timestamp) = local_log_timestamp() {
@@ -1093,6 +1890,7 @@ fn parse(arguments: Vec<OsString>) -> Result<ParseAction, String> {
                     continue;
                 }
                 "--stats" => options.stats = true,
+                "--json" => options.json = true,
                 "-v" | "--verbose" => options.verbose = true,
                 "--debug" => options.debug = true,
                 "--property" => options.property = true,
@@ -1207,9 +2005,26 @@ mod tests {
             panic!("expected runnable options");
         };
         assert!(options.stats);
+        assert!(!options.json);
         assert!(options.boolean);
         assert!(options.attribute);
         assert_eq!(options.policies.len(), 2);
+    }
+
+    #[test]
+    fn parses_hidden_json_option() {
+        let action = parse(
+            ["--json", "--property", "left", "right"]
+                .into_iter()
+                .map(OsString::from)
+                .collect(),
+        )
+        .expect("arguments should parse");
+        let ParseAction::Run(options) = action else {
+            panic!("expected runnable options");
+        };
+        assert!(options.json);
+        assert!(options.property);
     }
 
     #[test]

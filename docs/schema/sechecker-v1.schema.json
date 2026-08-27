@@ -1,0 +1,290 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "setools-rs sechecker structured output v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "tool",
+    "policy",
+    "query",
+    "summary",
+    "result_count",
+    "results"
+  ],
+  "properties": {
+    "schema": {
+      "const": "setools-rs.sechecker"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "const": "sechecker"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      }
+    },
+    "query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["configuration_path"],
+      "properties": {
+        "configuration_path": {
+          "type": "string"
+        }
+      }
+    },
+    "summary": {
+      "$ref": "#/$defs/summary"
+    },
+    "result_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/result"
+      }
+    }
+  },
+  "$defs": {
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "check_count",
+        "passed_check_count",
+        "failed_check_count",
+        "disabled_check_count",
+        "failure_count"
+      ],
+      "properties": {
+        "check_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "passed_check_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed_check_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "disabled_check_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failure_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "description",
+        "check_type",
+        "status",
+        "failure_count",
+        "details"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": ["string", "null"]
+        },
+        "check_type": {
+          "enum": [
+            "empty_typeattr",
+            "assert_te",
+            "assert_rbac",
+            "ro_execs",
+            "ro_kmods"
+          ]
+        },
+        "status": {
+          "enum": ["passed", "failed", "disabled"]
+        },
+        "failure_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "details": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/disabled_details"
+            },
+            {
+              "$ref": "#/$defs/empty_typeattr_details"
+            },
+            {
+              "$ref": "#/$defs/assert_te_details"
+            },
+            {
+              "$ref": "#/$defs/assert_rbac_details"
+            },
+            {
+              "$ref": "#/$defs/read_only_details"
+            },
+            {
+              "$ref": "#/$defs/unexpected_details"
+            }
+          ]
+        }
+      }
+    },
+    "string_array": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "disabled_details": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "reason"],
+      "properties": {
+        "kind": {
+          "const": "disabled"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "empty_typeattr_details": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "attribute", "missing", "members"],
+      "properties": {
+        "kind": {
+          "const": "empty_typeattr"
+        },
+        "attribute": {
+          "type": "string"
+        },
+        "missing": {
+          "type": "boolean"
+        },
+        "members": {
+          "$ref": "#/$defs/string_array"
+        }
+      }
+    },
+    "assert_te_details": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "rules", "missing_sources", "missing_targets"],
+      "properties": {
+        "kind": {
+          "const": "assert_te"
+        },
+        "rules": {
+          "$ref": "#/$defs/string_array"
+        },
+        "missing_sources": {
+          "$ref": "#/$defs/string_array"
+        },
+        "missing_targets": {
+          "$ref": "#/$defs/string_array"
+        }
+      }
+    },
+    "assert_rbac_details": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "rules", "missing_sources", "missing_targets"],
+      "properties": {
+        "kind": {
+          "const": "assert_rbac"
+        },
+        "rules": {
+          "$ref": "#/$defs/string_array"
+        },
+        "missing_sources": {
+          "$ref": "#/$defs/string_array"
+        },
+        "missing_targets": {
+          "$ref": "#/$defs/string_array"
+        }
+      }
+    },
+    "read_only_details": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "category", "checked_types", "files"],
+      "properties": {
+        "kind": {
+          "const": "read_only"
+        },
+        "category": {
+          "enum": ["executable", "kernel_module"]
+        },
+        "checked_types": {
+          "$ref": "#/$defs/string_array"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/writable_file"
+          }
+        }
+      }
+    },
+    "writable_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type_name", "use_rules", "write_rules"],
+      "properties": {
+        "type_name": {
+          "type": "string"
+        },
+        "use_rules": {
+          "$ref": "#/$defs/string_array"
+        },
+        "write_rules": {
+          "$ref": "#/$defs/string_array"
+        }
+      }
+    },
+    "unexpected_details": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "message"],
+      "properties": {
+        "kind": {
+          "const": "unexpected"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

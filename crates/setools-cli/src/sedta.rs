@@ -1,5 +1,6 @@
 //! `sedta` argument parsing, graph queries, and compatibility text rendering.
 
+use crate::json;
 use crate::sesearch::render_rule;
 use setools_graph::{DomainEntrypoint, DomainTransition, DomainTransitionGraph};
 use setools_policy::{Policy, PolicyLoader, TypeId, TypeOrAttributeId};
@@ -24,6 +25,7 @@ struct Options {
     policy: Option<PathBuf>,
     source: Option<String>,
     target: Option<String>,
+    json: bool,
     full: bool,
     stats: bool,
     verbose: bool,
@@ -61,6 +63,9 @@ pub(crate) fn run(arguments: Vec<OsString>) -> ExitCode {
     }
     if options.target.is_some() && !(options.shortest_path || has_all_paths) {
         return usage_error("An algorithm must be specified to determine a path.");
+    }
+    if options.json && options.output_file.is_some() {
+        return usage_error("--json cannot be used with --output_file.");
     }
 
     let (policy, policy_path) = match load_policy(&options) {
@@ -185,7 +190,11 @@ pub(crate) fn run(arguments: Vec<OsString>) -> ExitCode {
         return write_stdout(&render_stats(options.stats, stats));
     }
 
-    let output = match render_results(&policy, &options, results, stats) {
+    let output = match if options.json {
+        render_json(&policy, &policy_path, &options, &results, stats)
+    } else {
+        render_results(&policy, &options, results, stats)
+    } {
         Ok(output) => output,
         Err(message) => return analysis_error(&message),
     };
@@ -252,6 +261,7 @@ fn parse(arguments: Vec<OsString>) -> Result<ParseAction, String> {
             }
             "--full" => options.full = true,
             "--stats" => options.stats = true,
+            "--json" => options.json = true,
             "-v" | "--verbose" => options.verbose = true,
             "--debug" => options.debug = true,
             "-S" | "--shortest_path" => options.shortest_path = true,
@@ -357,6 +367,199 @@ fn render_results(
     }
     output.push_str(&render_stats(options.stats, stats));
     Ok(output)
+}
+
+fn render_json(
+    policy: &Policy,
+    policy_path: &Path,
+    options: &Options,
+    results: &Results<'_>,
+    stats: setools_graph::DomainTransitionStats,
+) -> Result<String, String> {
+    let (result_type, available) = match results {
+        Results::Transitions(transitions) => ("transition", transitions.len()),
+        Results::Paths(paths) => ("path", paths.len()),
+    };
+    let result_count = limited_result_count(available, options.limit_trans);
+
+    let mut output = String::new();
+    output.push_str(
+        "{\"schema\":\"setools-rs.sedta\",\"schema_version\":1,\"tool\":{\"name\":\"sedta\",\"version\":",
+    );
+    json::push_string(&mut output, env!("CARGO_PKG_VERSION"));
+    output.push_str("},\"policy\":{\"path\":");
+    json::push_string(&mut output, &policy_path.to_string_lossy());
+    output.push_str("},\"query\":{\"mode\":");
+    json::push_string(&mut output, query_mode(options));
+    output.push_str(",\"source\":");
+    json::push_string(
+        &mut output,
+        options.source.as_deref().expect("parser requires source"),
+    );
+    output.push_str(",\"target\":");
+    push_json_optional_string(&mut output, options.target.as_deref());
+    output.push_str(",\"reverse\":");
+    output.push_str(json_boolean(options.reverse));
+    output.push_str(",\"max_steps\":");
+    push_json_optional_i32(&mut output, options.all_paths);
+    output.push_str(",\"limit\":");
+    output.push_str(&options.limit_trans.to_string());
+    output.push_str(",\"exclude\":[");
+    push_json_strings(&mut output, &options.exclude);
+    output.push_str("],\"full\":");
+    output.push_str(json_boolean(options.full));
+    output.push_str(",\"stats\":");
+    output.push_str(json_boolean(options.stats));
+    output.push_str("},\"result_type\":");
+    json::push_string(&mut output, result_type);
+    output.push_str(",\"statistics\":");
+    if options.stats {
+        output.push_str("{\"nodes\":");
+        output.push_str(&stats.nodes.to_string());
+        output.push_str(",\"edges\":");
+        output.push_str(&stats.edges.to_string());
+        output.push('}');
+    } else {
+        output.push_str("null");
+    }
+    output.push_str(",\"result_count\":");
+    output.push_str(&result_count.to_string());
+    output.push_str(",\"results\":[");
+    match results {
+        Results::Transitions(transitions) => {
+            for (index, transition) in transitions.iter().take(result_count).enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                output.push_str("{\"kind\":\"transition\",");
+                push_json_transition(&mut output, policy, transition, options.full)?;
+                output.push('}');
+            }
+        }
+        Results::Paths(paths) => {
+            for (index, path) in paths.iter().take(result_count).enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                output.push_str("{\"kind\":\"path\",\"step_count\":");
+                output.push_str(&path.len().to_string());
+                output.push_str(",\"steps\":[");
+                for (step_index, transition) in path.iter().enumerate() {
+                    if step_index > 0 {
+                        output.push(',');
+                    }
+                    output.push('{');
+                    push_json_transition(&mut output, policy, transition, options.full)?;
+                    output.push('}');
+                }
+                output.push_str("]}");
+            }
+        }
+    }
+    output.push_str("]}\n");
+    Ok(output)
+}
+
+fn push_json_transition(
+    output: &mut String,
+    policy: &Policy,
+    transition: &DomainTransition<'_>,
+    full: bool,
+) -> Result<(), String> {
+    output.push_str("\"source\":");
+    json::push_string(output, type_name(policy, transition.source())?);
+    output.push_str(",\"target\":");
+    json::push_string(output, type_name(policy, transition.target())?);
+    output.push_str(",\"details\":");
+    if !full {
+        output.push_str("null");
+        return Ok(());
+    }
+
+    output.push_str("{\"transition_rules\":[");
+    push_json_rules(output, policy, transition.transition_rules())?;
+    output.push_str("],\"setexec_rules\":[");
+    push_json_rules(output, policy, transition.setexec_rules())?;
+    output.push_str("],\"entrypoints\":[");
+    for (index, entrypoint) in transition.entrypoints().iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"name\":");
+        json::push_string(output, type_name(policy, entrypoint.name())?);
+        output.push_str(",\"entrypoint_rules\":[");
+        push_json_rules(output, policy, entrypoint.entrypoint_rules())?;
+        output.push_str("],\"execute_rules\":[");
+        push_json_rules(output, policy, entrypoint.execute_rules())?;
+        output.push_str("],\"type_transition_rules\":[");
+        push_json_rules(output, policy, entrypoint.type_transition_rules())?;
+        output.push_str("]}");
+    }
+    output.push_str("],\"dyntransition_rules\":[");
+    push_json_rules(output, policy, transition.dyntransition_rules())?;
+    output.push_str("],\"setcurrent_rules\":[");
+    push_json_rules(output, policy, transition.setcurrent_rules())?;
+    output.push_str("]}");
+    Ok(())
+}
+
+fn push_json_rules(
+    output: &mut String,
+    policy: &Policy,
+    rules: &[&setools_policy::TeRule],
+) -> Result<(), String> {
+    let rules = render_rules(policy, rules)?;
+    push_json_strings(output, &rules);
+    Ok(())
+}
+
+fn push_json_strings(output: &mut String, values: &[String]) {
+    for (index, value) in values.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        json::push_string(output, value);
+    }
+}
+
+fn push_json_optional_string(output: &mut String, value: Option<&str>) {
+    if let Some(value) = value {
+        json::push_string(output, value);
+    } else {
+        output.push_str("null");
+    }
+}
+
+fn push_json_optional_i32(output: &mut String, value: Option<i32>) {
+    if let Some(value) = value {
+        output.push_str(&value.to_string());
+    } else {
+        output.push_str("null");
+    }
+}
+
+fn limited_result_count(available: usize, limit: i32) -> usize {
+    match limit {
+        0 => available,
+        value if value < 0 => available.min(1),
+        value => available.min(value as usize),
+    }
+}
+
+fn query_mode(options: &Options) -> &'static str {
+    if options.shortest_path {
+        "shortest_paths"
+    } else if options.all_paths.is_some_and(|depth| depth != 0) {
+        "all_paths"
+    } else if options.reverse {
+        "transitions_in"
+    } else {
+        "transitions_out"
+    }
+}
+
+const fn json_boolean(value: bool) -> &'static str {
+    if value { "true" } else { "false" }
 }
 
 fn render_stats(enabled: bool, stats: setools_graph::DomainTransitionStats) -> String {
@@ -839,5 +1042,51 @@ impl ExitCodeExt for ExitCode {
         } else {
             self
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ParseAction, limited_result_count, parse, query_mode};
+    use std::ffi::OsString;
+
+    #[test]
+    fn parses_hidden_json_option_and_path_query() {
+        let action = parse(
+            [
+                "--json",
+                "--source",
+                "alpha",
+                "--target",
+                "delta",
+                "--all_paths=3",
+                "--full",
+                "--stats",
+                "--limit_trans=2",
+                "excluded",
+            ]
+            .into_iter()
+            .map(OsString::from)
+            .collect(),
+        )
+        .expect("arguments should parse");
+        let ParseAction::Run(options) = action else {
+            panic!("expected runnable options");
+        };
+        assert!(options.json);
+        assert!(options.full);
+        assert!(options.stats);
+        assert_eq!(options.all_paths, Some(3));
+        assert_eq!(options.limit_trans, 2);
+        assert_eq!(options.exclude, ["excluded"]);
+        assert_eq!(query_mode(&options), "all_paths");
+    }
+
+    #[test]
+    fn result_limit_retains_legacy_negative_behavior() {
+        assert_eq!(limited_result_count(3, 0), 3);
+        assert_eq!(limited_result_count(3, 2), 2);
+        assert_eq!(limited_result_count(3, -1), 1);
+        assert_eq!(limited_result_count(0, -1), 0);
     }
 }

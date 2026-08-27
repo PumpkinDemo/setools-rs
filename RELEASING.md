@@ -14,6 +14,7 @@ Crates.io publication remains disabled until the public library APIs stabilize.
    cargo fmt --all --check
    cargo test --workspace
    cargo clippy --workspace --all-targets -- -D warnings
+   cargo run -p setools-xtask -- check
    cargo build --release -p setools-cli --bin sesearch --bin seinfo --bin sediff --bin sedta --bin seinfoflow --bin sechecker
    ```
 
@@ -35,6 +36,7 @@ Crates.io publication remains disabled until the public library APIs stabilize.
    sha256sum setools-rs-4.7.1.tar.gz
    ```
 
-If a binary archive is published, include `README.md`, `COPYING`, and the two
-files under `LICENSES/` beside the published binaries. Do not label binaries
-from untested platforms as supported.
+If a binary archive is published, include `README.md`, `COPYING`, the two files
+under `LICENSES/`, all six files under `man/man1/`, and the Bash/Zsh/Fish files
+under `completions/` beside the published binaries. Do not label binaries from
+untested platforms as supported.

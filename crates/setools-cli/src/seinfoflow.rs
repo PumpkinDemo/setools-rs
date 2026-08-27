@@ -1,5 +1,6 @@
 //! `seinfoflow` argument parsing, information-flow queries, and rendering.
 
+use crate::json;
 use crate::sesearch::render_rule;
 use setools_graph::{
     InformationFlowGraph, InformationFlowStats, InformationFlowStep, PermissionDirection,
@@ -30,6 +31,7 @@ struct Options {
     permission_map: Option<PathBuf>,
     source: Option<String>,
     target: Option<String>,
+    json: bool,
     full: bool,
     stats: bool,
     verbose: bool,
@@ -51,6 +53,7 @@ impl Default for Options {
             permission_map: None,
             source: None,
             target: None,
+            json: false,
             full: false,
             stats: false,
             verbose: false,
@@ -100,6 +103,9 @@ pub(crate) fn run(arguments: Vec<OsString>) -> ExitCode {
     }
     if options.limit_flows < 0 {
         return usage_error("Limit on information flows cannot be negative.");
+    }
+    if options.json && options.output_file.is_some() {
+        return usage_error("--json cannot be used with --output_file.");
     }
 
     let (policy, policy_path) = match load_policy(&options) {
@@ -270,7 +276,12 @@ pub(crate) fn run(arguments: Vec<OsString>) -> ExitCode {
         return write_stdout(&render_stats(options.stats, stats));
     }
 
-    match render_results(&policy, &options, results, stats) {
+    let output = if options.json {
+        render_json(&policy, &policy_path, &options, &results, stats)
+    } else {
+        render_results(&policy, &options, results, stats)
+    };
+    match output {
         Ok(output) => write_stdout(&output),
         Err(message) => analysis_error(&message),
     }
@@ -322,6 +333,7 @@ fn parse(arguments: Vec<OsString>) -> Result<ParseAction, String> {
             "--version" => return Ok(ParseAction::Version),
             "--full" => options.full = true,
             "--stats" => options.stats = true,
+            "--json" => options.json = true,
             "-v" | "--verbose" => options.verbose = true,
             "--debug" => options.debug = true,
             "-p" | "--policy" => {
@@ -538,6 +550,221 @@ fn render_results(
     }
     output.push_str(&render_stats(options.stats, stats));
     Ok(output)
+}
+
+fn render_json(
+    policy: &Policy,
+    policy_path: &Path,
+    options: &Options,
+    results: &Results<'_>,
+    stats: InformationFlowStats,
+) -> Result<String, String> {
+    let (result_type, available) = match results {
+        Results::Flows(flows) => ("flow", flows.len()),
+        Results::Paths(paths) => ("path", paths.len()),
+    };
+    let result_count = limited_result_count(available, options.limit_flows);
+
+    let mut output = String::new();
+    output.push_str(
+        "{\"schema\":\"setools-rs.seinfoflow\",\"schema_version\":1,\"tool\":{\"name\":\"seinfoflow\",\"version\":",
+    );
+    json::push_string(&mut output, env!("CARGO_PKG_VERSION"));
+    output.push_str("},\"policy\":{\"path\":");
+    json::push_string(&mut output, &policy_path.to_string_lossy());
+    output.push_str("},\"query\":{\"mode\":");
+    json::push_string(&mut output, query_mode(options));
+    output.push_str(",\"source\":");
+    json::push_string(
+        &mut output,
+        options.source.as_deref().expect("parser requires source"),
+    );
+    output.push_str(",\"target\":");
+    push_json_optional_string(&mut output, options.target.as_deref());
+    output.push_str(",\"reverse\":");
+    output.push_str(json_boolean(options.reverse));
+    output.push_str(",\"max_steps\":");
+    push_json_optional_i32(&mut output, options.all_paths);
+    output.push_str(",\"minimum_weight\":");
+    output.push_str(&options.minimum_weight.to_string());
+    output.push_str(",\"limit\":");
+    output.push_str(&options.limit_flows.to_string());
+    output.push_str(",\"exclude\":[");
+    push_json_strings(&mut output, &options.exclude);
+    output.push_str("],\"booleans\":");
+    push_json_booleans(&mut output, options.booleans.as_ref());
+    output.push_str(",\"permission_map\":");
+    push_json_permission_map(&mut output, options.permission_map.as_deref());
+    output.push_str(",\"full\":");
+    output.push_str(json_boolean(options.full));
+    output.push_str(",\"stats\":");
+    output.push_str(json_boolean(options.stats));
+    output.push_str("},\"result_type\":");
+    json::push_string(&mut output, result_type);
+    output.push_str(",\"statistics\":");
+    if options.stats {
+        output.push_str("{\"nodes\":");
+        output.push_str(&stats.nodes.to_string());
+        output.push_str(",\"edges\":");
+        output.push_str(&stats.edges.to_string());
+        output.push('}');
+    } else {
+        output.push_str("null");
+    }
+    output.push_str(",\"result_count\":");
+    output.push_str(&result_count.to_string());
+    output.push_str(",\"results\":[");
+    match results {
+        Results::Flows(flows) => {
+            for (index, flow) in flows.iter().take(result_count).enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                output.push_str("{\"kind\":\"flow\",");
+                push_json_flow(&mut output, policy, flow, options.full)?;
+                output.push('}');
+            }
+        }
+        Results::Paths(paths) => {
+            for (index, path) in paths.iter().take(result_count).enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                output.push_str("{\"kind\":\"path\",\"step_count\":");
+                output.push_str(&path.len().to_string());
+                output.push_str(",\"steps\":[");
+                for (step_index, flow) in path.iter().enumerate() {
+                    if step_index > 0 {
+                        output.push(',');
+                    }
+                    output.push('{');
+                    push_json_flow(&mut output, policy, flow, options.full)?;
+                    output.push('}');
+                }
+                output.push_str("]}");
+            }
+        }
+    }
+    output.push_str("]}\n");
+    Ok(output)
+}
+
+fn push_json_flow(
+    output: &mut String,
+    policy: &Policy,
+    flow: &InformationFlowStep<'_>,
+    full: bool,
+) -> Result<(), String> {
+    output.push_str("\"source\":");
+    json::push_string(output, type_name(policy, flow.source())?);
+    output.push_str(",\"target\":");
+    json::push_string(output, type_name(policy, flow.target())?);
+    output.push_str(",\"weight\":");
+    output.push_str(&flow.weight().to_string());
+    output.push_str(",\"rules\":");
+    if !full {
+        output.push_str("null");
+        return Ok(());
+    }
+    output.push('[');
+    let mut rules = flow
+        .rules()
+        .iter()
+        .map(|rule| render_rule(policy, rule))
+        .collect::<Result<Vec<_>, _>>()?;
+    rules.sort_unstable();
+    push_json_strings(output, &rules);
+    output.push(']');
+    Ok(())
+}
+
+fn push_json_booleans(output: &mut String, values: Option<&BTreeMap<String, bool>>) {
+    let Some(values) = values else {
+        output.push_str("null");
+        return;
+    };
+    output.push_str("{\"mode\":");
+    json::push_string(
+        output,
+        if values.is_empty() {
+            "default"
+        } else {
+            "assignments"
+        },
+    );
+    output.push_str(",\"values\":[");
+    for (index, (name, state)) in values.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"name\":");
+        json::push_string(output, name);
+        output.push_str(",\"state\":");
+        output.push_str(json_boolean(*state));
+        output.push('}');
+    }
+    output.push_str("]}");
+}
+
+fn push_json_permission_map(output: &mut String, path: Option<&Path>) {
+    output.push_str("{\"kind\":");
+    json::push_string(output, if path.is_some() { "file" } else { "built_in" });
+    output.push_str(",\"path\":");
+    if let Some(path) = path {
+        json::push_string(output, &path.to_string_lossy());
+    } else {
+        output.push_str("null");
+    }
+    output.push('}');
+}
+
+fn push_json_strings(output: &mut String, values: &[String]) {
+    for (index, value) in values.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        json::push_string(output, value);
+    }
+}
+
+fn push_json_optional_string(output: &mut String, value: Option<&str>) {
+    if let Some(value) = value {
+        json::push_string(output, value);
+    } else {
+        output.push_str("null");
+    }
+}
+
+fn push_json_optional_i32(output: &mut String, value: Option<i32>) {
+    if let Some(value) = value {
+        output.push_str(&value.to_string());
+    } else {
+        output.push_str("null");
+    }
+}
+
+fn limited_result_count(available: usize, limit: i32) -> usize {
+    if limit == 0 {
+        available
+    } else {
+        available.min(limit as usize)
+    }
+}
+
+fn query_mode(options: &Options) -> &'static str {
+    if options.shortest_path {
+        "shortest_paths"
+    } else if options.all_paths.is_some_and(|depth| depth != 0) {
+        "all_paths"
+    } else if options.reverse {
+        "flows_in"
+    } else {
+        "flows_out"
+    }
+}
+
+const fn json_boolean(value: bool) -> &'static str {
+    if value { "true" } else { "false" }
 }
 
 fn render_step(
@@ -985,5 +1212,60 @@ impl ExitCodeExt for ExitCode {
         } else {
             self
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ParseAction, limited_result_count, parse, query_mode};
+    use std::ffi::OsString;
+
+    #[test]
+    fn parses_hidden_json_path_and_boolean_query() {
+        let action = parse(
+            [
+                "--json",
+                "--source",
+                "alpha",
+                "--target",
+                "delta",
+                "--all_paths=3",
+                "--min_weight=2",
+                "--limit_flows=1",
+                "--booleans=second:false,first:true",
+                "--full",
+                "--stats",
+                "excluded",
+            ]
+            .into_iter()
+            .map(OsString::from)
+            .collect(),
+        )
+        .expect("arguments should parse");
+        let ParseAction::Run(options) = action else {
+            panic!("expected runnable options");
+        };
+        assert!(options.json);
+        assert!(options.full);
+        assert!(options.stats);
+        assert_eq!(options.all_paths, Some(3));
+        assert_eq!(options.minimum_weight, 2);
+        assert_eq!(options.limit_flows, 1);
+        assert_eq!(options.exclude, ["excluded"]);
+        assert_eq!(
+            options
+                .booleans
+                .as_ref()
+                .expect("Boolean assignments should exist"),
+            &[("first".to_owned(), true), ("second".to_owned(), false)].into()
+        );
+        assert_eq!(query_mode(&options), "all_paths");
+    }
+
+    #[test]
+    fn result_limit_is_applied_to_top_level_results() {
+        assert_eq!(limited_result_count(3, 0), 3);
+        assert_eq!(limited_result_count(3, 2), 2);
+        assert_eq!(limited_result_count(1, 2), 1);
     }
 }

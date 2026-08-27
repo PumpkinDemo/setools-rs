@@ -1,9 +1,9 @@
 # SETools Rust 重写进度
 
-最后更新：2026-08-21（Asia/Shanghai）
+最后更新：2026-08-27（Asia/Shanghai）
 
-当前阶段：六个兼容 CLI 与 `sesearch`/`seinfo` JSON v1 已实现；M6 继续扩展
-结构化输出、completion 和 man page
+当前阶段：六个兼容 CLI、command-specific JSON v1、man page 和 shell completion
+均已实现；M6 仅余后续集成边界决策
 
 CLI 兼容目标：SETools 4.7.1
 
@@ -123,14 +123,31 @@ CLI 兼容目标：SETools 4.7.1
   JSON escaping；默认文本和冻结 help 不变，verbose/debug 仍只写 stderr。
 - [x] `seinfo --json` 覆盖 typed statistics、全部显式 query criterion、SELinux/Xen
   component section、expand/flat/all 和空 section；默认文本/help/error 不变。
-- [~] `sediff` 及其余稳定命令尚未定义各自的 command-specific JSON schema。
+- [x] `sediff --json` 覆盖全部 38 个 component、显式空 component、默认 all、完整
+  added/removed/modified counts 与 `--stats` count-only 行为；直接消费 semantic diff
+  结果，不解析兼容文本，默认文本/help/error 不变。
+- [x] `sedta --json` 覆盖 forward/reverse direct transition、shortest/all paths、limit、
+  exclude、full typed rule provenance、typed graph statistics 和空结果；默认文本/help/
+  error/Graphviz 契约不变。
+- [x] `seinfoflow --json` 覆盖 forward/reverse direct flow、shortest/all paths、weight、
+  limit/exclude、permission-map 来源、Boolean 三态、full contributing rules、typed graph
+  statistics 和空结果；默认文本/help/error/Graphviz 契约不变。
+- [x] `sechecker --json` 覆盖五类 check、pass/fail/disabled、failure summary、canonical
+  TE/RBAC rule evidence、missing expectations、writable-file evidence 和配置路径；有
+  findings 时仍输出完整 JSON 并保持 status 1，默认文本/help/error/output-file 契约不变。
+- [x] ADR 0003 冻结 CLI 发布资产契约：六份 binary 直接使用的 product-owned frozen
+  help 同时是公开 option metadata 的唯一来源；隐藏的附加 `--json` 由生成器显式补入，
+  不改变兼容 help/parser。
+- [x] 无第三方依赖的 `setools-xtask` 可确定性生成并逐字节检查 6 个 man1 page 以及
+  Bash、Zsh、Fish completion，共 24 个 committed release asset；CI、README 和 release
+  checklist 均接入 drift check。
 
 ## 后续里程碑
 
 - [x] M4：`sediff` semantic diff。
 - [x] M5：`sedta` 与 `seinfoflow` graph analysis。
-- [~] M6：`sechecker`、`sesearch`/`seinfo` JSON v1 已完成；其余结构化输出、
-  completion 和 man page 待实现。
+- [~] M6：六个 CLI 的兼容范围、command-specific JSON v1、completion 和 man page
+  均已完成；仅余 Python binding、MCP、GUI 的后续集成边界决策。
 - [ ] M7：可选纯 Rust binary-policy parser；不阻塞首个发布。
 
 ## 当前验证基线
@@ -141,25 +158,29 @@ CLI 兼容目标：SETools 4.7.1
 cargo fmt --all --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
+cargo run -p setools-xtask -- check
 cargo build --release -p setools-cli --bin sesearch --bin seinfo --bin sediff --bin sedta --bin seinfoflow --bin sechecker
 ```
 
-最近一次实现验证：workspace 61 tests、Clippy `-D warnings`、release 六个 binary
-build，以及 37-case `seinfo` legacy 差分矩阵通过；此前 64-case `sesearch`、64-case
-`sediff`、37-case `sedta`、55-case `seinfoflow` 和 44-case `sechecker` 矩阵基线保持
-不变。真实 1.9 MiB `policy` 的 JSON statistics 可解析并报告 4132 types，`init`
-expanded query 返回 1 项，verbose 模式的 3 行日志只在 stderr。ASan/UBSan 在关闭
-leak detection 后覆盖 bridge unit 与
-四个真实 policy load tests；LeakSanitizer 在当前 ptrace sandbox 中不可运行，仍需普通
-shell/CI 执行既有 sanitizer job。
+最近一次实现验证：workspace 81 tests、Clippy `-D warnings`、release 六个 binary
+build、24 个 generated asset 的 byte-exact check、六份 Bash/Zsh syntax check 和六份
+man1 `groff -man` check 均通过；六份 Fish completion 已生成，但当前机器没有 Fish
+runtime 可执行 syntax check。此前 44-case `sechecker` legacy 差分矩阵以及 64-case `sesearch`、
+37-case `seinfo`、64-case `sediff`、37-case `sedta` 和 55-case `seinfoflow` 矩阵基线
+保持不变。六个 normative JSON schema 均可由标准 JSON parser 读取；真实 1.9 MiB
+`policy` 的 `sechecker --json` init source exemption check 可解析并返回 1 个 passed
+check、0 failures。ASan/UBSan 在关闭 leak detection 后覆盖 bridge unit 与四个真实
+policy load tests；LeakSanitizer 在当前 ptrace sandbox 中不可运行，仍需普通 shell/CI
+执行既有 sanitizer job。
 
-下一最小工作包：继续 M6，为 `sediff` 冻结 command-specific JSON v1 schema，先实现
-property/simple-symbol diff 的最小垂直切片；默认文本/help/error 契约保持不变。
+下一最小工作包：回到首发前尚未关闭的 M0，冻结可复现的 policy load/query
+benchmark 命令并记录 Rust wall time 与 peak RSS；legacy 对照只留在外层开发仓库。
 
 ## 发布未关闭项
 
 - [x] 六个 CLI 的 4.7.1 兼容范围已完成。
-- [ ] 生成 man page。
+- [x] 生成 shell completion。
+- [x] 生成 man page。
 - [ ] 建立支持的 libsepol version CI matrix。
 - [ ] 记录性能和峰值内存基线。
 - [ ] library API 稳定后决定 crates.io publication。

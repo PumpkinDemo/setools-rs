@@ -1,5 +1,6 @@
 //! `sechecker` argument parsing and compatibility report rendering.
 
+use crate::json;
 use crate::sesearch::{render_rbac_rule, render_rule};
 use setools_checker::{
     CheckDebug, CheckOutcome, CheckResult, CheckType, Checker, NoticeLevel, RbacQuerySettings,
@@ -25,6 +26,7 @@ struct Options {
     config: Option<PathBuf>,
     policy: Option<PathBuf>,
     output_file: Option<PathBuf>,
+    json: bool,
     verbose: bool,
     debug: bool,
 }
@@ -47,6 +49,9 @@ pub(crate) fn run(arguments: Vec<OsString>) -> ExitCode {
         ParseAction::Version => return write_stdout(concat!(env!("CARGO_PKG_VERSION"), "\n")),
         ParseAction::Run(options) => options,
     };
+    if options.json && options.output_file.is_some() {
+        return usage_error("--json cannot be used with --output_file.");
+    }
     let config_path = options
         .config
         .as_ref()
@@ -136,14 +141,18 @@ pub(crate) fn run(arguments: Vec<OsString>) -> ExitCode {
         log_check_trace(&options, &policy, &policy_path, result);
     }
     let end_time = utc_now();
-    let report = match render_report(
-        &policy,
-        config_path,
-        &policy_path,
-        &start_time,
-        &end_time,
-        &results,
-    ) {
+    let report = match if options.json {
+        render_json(&policy, config_path, &policy_path, &results)
+    } else {
+        render_report(
+            &policy,
+            config_path,
+            &policy_path,
+            &start_time,
+            &end_time,
+            &results,
+        )
+    } {
         Ok(value) => value,
         Err(message) => return operational_error(&options, &message),
     };
@@ -202,6 +211,7 @@ fn parse(arguments: Vec<OsString>) -> Result<ParseAction, String> {
         match argument.as_str() {
             "-h" | "--help" => return Ok(ParseAction::Help),
             "--version" => return Ok(ParseAction::Version),
+            "--json" => options.json = true,
             "-v" | "--verbose" => options.verbose = true,
             "--debug" => options.debug = true,
             "-o" | "--output_file" => {
@@ -510,6 +520,225 @@ fn render_outcome(
         }
     }
     Ok(())
+}
+
+fn render_json(
+    policy: &Policy,
+    config_path: &Path,
+    policy_path: &Path,
+    results: &[CheckResult<'_>],
+) -> Result<String, String> {
+    let failure_count = results
+        .iter()
+        .map(CheckResult::failure_count)
+        .sum::<usize>();
+    let mut passed_check_count = 0_usize;
+    let mut failed_check_count = 0_usize;
+    let mut disabled_check_count = 0_usize;
+    for result in results {
+        match result_status(result) {
+            "passed" => passed_check_count += 1,
+            "failed" => failed_check_count += 1,
+            "disabled" => disabled_check_count += 1,
+            _ => unreachable!("result status is a closed set"),
+        }
+    }
+
+    let mut output = String::new();
+    output.push_str(
+        "{\"schema\":\"setools-rs.sechecker\",\"schema_version\":1,\"tool\":{\"name\":\"sechecker\",\"version\":",
+    );
+    json::push_string(&mut output, env!("CARGO_PKG_VERSION"));
+    output.push_str("},\"policy\":{\"path\":");
+    json::push_string(&mut output, &policy_path.to_string_lossy());
+    output.push_str("},\"query\":{\"configuration_path\":");
+    json::push_string(&mut output, &config_path.to_string_lossy());
+    output.push_str("},\"summary\":{\"check_count\":");
+    output.push_str(&results.len().to_string());
+    output.push_str(",\"passed_check_count\":");
+    output.push_str(&passed_check_count.to_string());
+    output.push_str(",\"failed_check_count\":");
+    output.push_str(&failed_check_count.to_string());
+    output.push_str(",\"disabled_check_count\":");
+    output.push_str(&disabled_check_count.to_string());
+    output.push_str(",\"failure_count\":");
+    output.push_str(&failure_count.to_string());
+    output.push_str("},\"result_count\":");
+    output.push_str(&results.len().to_string());
+    output.push_str(",\"results\":[");
+    for (index, result) in results.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        push_json_result(&mut output, policy, result)?;
+    }
+    output.push_str("]}\n");
+    Ok(output)
+}
+
+fn push_json_result(
+    output: &mut String,
+    policy: &Policy,
+    result: &CheckResult<'_>,
+) -> Result<(), String> {
+    output.push_str("{\"name\":");
+    json::push_string(output, &result.name);
+    output.push_str(",\"description\":");
+    push_json_optional_string(output, result.description.as_deref());
+    output.push_str(",\"check_type\":");
+    json::push_string(output, result.check_type.name());
+    output.push_str(",\"status\":");
+    json::push_string(output, result_status(result));
+    output.push_str(",\"failure_count\":");
+    output.push_str(&result.failure_count().to_string());
+    output.push_str(",\"details\":");
+    push_json_outcome(output, policy, &result.outcome)?;
+    output.push('}');
+    Ok(())
+}
+
+fn push_json_outcome(
+    output: &mut String,
+    policy: &Policy,
+    outcome: &CheckOutcome<'_>,
+) -> Result<(), String> {
+    match outcome {
+        CheckOutcome::Disabled { reason } => {
+            output.push_str("{\"kind\":\"disabled\",\"reason\":");
+            json::push_string(output, reason);
+            output.push('}');
+        }
+        CheckOutcome::EmptyTypeAttribute {
+            attribute,
+            missing,
+            members,
+        } => {
+            output.push_str("{\"kind\":\"empty_typeattr\",\"attribute\":");
+            json::push_string(output, attribute);
+            output.push_str(",\"missing\":");
+            output.push_str(json_boolean(*missing));
+            output.push_str(",\"members\":[");
+            push_json_strings(output, members);
+            output.push_str("]}");
+        }
+        CheckOutcome::AssertTe {
+            rules,
+            missing_sources,
+            missing_targets,
+        } => {
+            let mut rules = rules
+                .iter()
+                .map(|rule| render_rule(policy, rule))
+                .collect::<Result<Vec<_>, _>>()?;
+            rules.sort_unstable();
+            output.push_str("{\"kind\":\"assert_te\",\"rules\":[");
+            push_json_strings(output, &rules);
+            output.push_str("],\"missing_sources\":[");
+            push_json_strings(output, missing_sources);
+            output.push_str("],\"missing_targets\":[");
+            push_json_strings(output, missing_targets);
+            output.push_str("]}");
+        }
+        CheckOutcome::AssertRbac {
+            rules,
+            missing_sources,
+            missing_targets,
+        } => {
+            let mut rules = rules
+                .iter()
+                .map(|rule| render_rbac_rule(policy, rule))
+                .collect::<Result<Vec<_>, _>>()?;
+            rules.sort_unstable();
+            output.push_str("{\"kind\":\"assert_rbac\",\"rules\":[");
+            push_json_strings(output, &rules);
+            output.push_str("],\"missing_sources\":[");
+            push_json_strings(output, missing_sources);
+            output.push_str("],\"missing_targets\":[");
+            push_json_strings(output, missing_targets);
+            output.push_str("]}");
+        }
+        CheckOutcome::ReadOnly {
+            kind,
+            checked_types,
+            files,
+        } => {
+            output.push_str("{\"kind\":\"read_only\",\"category\":");
+            json::push_string(
+                output,
+                match kind {
+                    ReadOnlyKind::Executable => "executable",
+                    ReadOnlyKind::KernelModule => "kernel_module",
+                },
+            );
+            output.push_str(",\"checked_types\":[");
+            push_json_strings(output, checked_types);
+            output.push_str("],\"files\":[");
+            for (index, file) in files.iter().enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                let mut use_rules = file
+                    .use_rules
+                    .iter()
+                    .map(|rule| render_rule(policy, rule))
+                    .collect::<Result<Vec<_>, _>>()?;
+                use_rules.sort_unstable();
+                use_rules.dedup();
+                let mut write_rules = file
+                    .write_rules
+                    .iter()
+                    .map(|rule| render_rule(policy, rule))
+                    .collect::<Result<Vec<_>, _>>()?;
+                write_rules.sort_unstable();
+                write_rules.dedup();
+                output.push_str("{\"type_name\":");
+                json::push_string(output, &file.type_name);
+                output.push_str(",\"use_rules\":[");
+                push_json_strings(output, &use_rules);
+                output.push_str("],\"write_rules\":[");
+                push_json_strings(output, &write_rules);
+                output.push_str("]}");
+            }
+            output.push_str("]}");
+        }
+        CheckOutcome::Unexpected { message } => {
+            output.push_str("{\"kind\":\"unexpected\",\"message\":");
+            json::push_string(output, message);
+            output.push('}');
+        }
+    }
+    Ok(())
+}
+
+fn result_status(result: &CheckResult<'_>) -> &'static str {
+    if matches!(&result.outcome, CheckOutcome::Disabled { .. }) {
+        "disabled"
+    } else if result.failure_count() == 0 {
+        "passed"
+    } else {
+        "failed"
+    }
+}
+
+fn push_json_strings(output: &mut String, values: &[String]) {
+    for (index, value) in values.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        json::push_string(output, value);
+    }
+}
+
+fn push_json_optional_string(output: &mut String, value: Option<&str>) {
+    if let Some(value) = value {
+        json::push_string(output, value);
+    } else {
+        output.push_str("null");
+    }
+}
+
+const fn json_boolean(value: bool) -> &'static str {
+    if value { "true" } else { "false" }
 }
 
 fn utc_now() -> String {
@@ -1344,5 +1573,21 @@ mod tests {
         ])
         .expect("options should parse");
         assert!(matches!(action, super::ParseAction::Run(_)));
+    }
+
+    #[test]
+    fn parses_hidden_json_option() {
+        let action = parse(vec![
+            OsString::from("--json"),
+            OsString::from("checks.ini"),
+            OsString::from("policy.bin"),
+        ])
+        .expect("options should parse");
+        let super::ParseAction::Run(options) = action else {
+            panic!("expected runnable options");
+        };
+        assert!(options.json);
+        assert_eq!(options.config, Some("checks.ini".into()));
+        assert_eq!(options.policy, Some("policy.bin".into()));
     }
 }

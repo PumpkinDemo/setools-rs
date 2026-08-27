@@ -125,6 +125,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "setools-xtask"
+version = "4.7.1"
+
+[[package]]
 name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

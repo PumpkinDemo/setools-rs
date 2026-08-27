@@ -34,5 +34,11 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Build release sesearch
-        run: cargo build --release -p setools-cli --bin sesearch
+      - name: Verify generated CLI assets
+        run: cargo run -p setools-xtask -- check
+
+      - name: Build release binaries
+        run: >-
+          cargo build --release -p setools-cli
+          --bin sesearch --bin seinfo --bin sediff
+          --bin sedta --bin seinfoflow --bin sechecker

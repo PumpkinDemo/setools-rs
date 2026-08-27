@@ -14,6 +14,7 @@ Before submitting a change, run:
 cargo fmt --all --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
+cargo run -p setools-xtask -- check
 cargo build --release -p setools-cli --bin sesearch
 ```
 

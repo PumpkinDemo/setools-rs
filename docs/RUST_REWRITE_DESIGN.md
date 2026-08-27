@@ -2,7 +2,7 @@
 
 Status: Draft  
 Compatibility baseline: SETools 4.7.1  
-Last updated: 2026-08-17
+Last updated: 2026-08-27
 
 Project tracking: [RUST_REWRITE_PROGRESS.md](RUST_REWRITE_PROGRESS.md)  
 Instructions for future agent sessions: [AGENT.md](AGENT.md)
@@ -444,14 +444,26 @@ must include a schema version. JSON records use stable names and values, not
 internal numeric IDs.
 
 The accepted structured-output contracts are documented in
-[ADR 0002](adr/0002-structured-output-v1.md). `sesearch` and `seinfo` have
-separate normative schemas in [`docs/schema`](schema/): search results use
-family/rule identifiers, while component information uses typed statistics and
-stable section identifiers. Both write one JSON document on success, including
-empty results. Compatibility help, version, error streams, error text, and exit
-status remain unchanged; the additive option is therefore documented outside
-the frozen legacy help text. Each later command receives its own schema
-identifier and result shape under the same envelope/versioning rules.
+[ADR 0002](adr/0002-structured-output-v1.md). `sesearch`, `seinfo`, `sediff`,
+`sedta`, `seinfoflow`, and `sechecker` have separate normative schemas in
+[`docs/schema`](schema/): search results use family/rule identifiers, component
+information uses typed statistics and stable section identifiers, semantic
+differences use stable component IDs plus canonical added/removed/modified
+results, domain-transition analysis uses tagged transition/path results with
+optional typed rule provenance, and information-flow analysis uses tagged
+weighted flow/path results with permission-map and Boolean query metadata.
+Checker analysis uses typed per-check evidence and summary counts; completed
+runs write JSON at both clean status 0 and findings status 1. Compatibility help,
+version, error streams, error text, and exit status remain unchanged; the
+additive option is therefore documented outside the frozen legacy help text.
+
+Generated release documentation follows
+[ADR 0003](adr/0003-generated-cli-assets.md). The compatibility help assets
+consumed directly by the binaries are also the source of public option metadata
+for the dependency-free `setools-xtask` generator. It deterministically writes
+six man1 pages and Bash/Zsh/Fish completions, adds the intentionally hidden
+`--json` metadata, and provides a byte-exact `check` mode for CI and releases.
+Generation never loads a policy or reads a legacy/parent repository.
 
 Suggested process exit policy, subject to verification against every legacy
 tool:
@@ -672,12 +684,13 @@ Before implementation grows, record at least these decisions:
    sections.
 3. The internal bitset representation.
 4. Conditional expression canonicalization and compatibility rendering.
-5. The structured-output schema and versioning policy. `sesearch` and `seinfo`
-   v1 are accepted in [ADR 0002](adr/0002-structured-output-v1.md); later
-   commands require command-specific schemas under the same envelope rules.
-6. Dynamic versus optional vendored libsepol builds.
-7. The public Rust API and crate publication policy.
-8. The threat model for untrusted binary policies.
+5. The structured-output schema and versioning policy. All six command-specific
+   v1 schemas are accepted in [ADR 0002](adr/0002-structured-output-v1.md).
+6. Generated documentation/completion metadata and drift checks are accepted in
+   [ADR 0003](adr/0003-generated-cli-assets.md).
+7. Dynamic versus optional vendored libsepol builds.
+8. The public Rust API and crate publication policy.
+9. The threat model for untrusted binary policies.
 
 The first implementation task after M0 should be a narrow vertical slice:
 load one compiled fixture, construct types/attributes/classes/allow rules, and

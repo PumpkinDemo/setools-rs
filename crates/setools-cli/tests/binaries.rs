@@ -593,6 +593,131 @@ fn sediff_reports_simple_semantic_components() {
 }
 
 #[test]
+fn sediff_emits_versioned_json_for_semantic_components() {
+    let left = CompiledPolicy::build_fixture("diff-simple-left.conf", None);
+    let right = CompiledPolicy::build_fixture("diff-simple-right.conf", None);
+    let output = Command::new(env!("CARGO_BIN_EXE_sediff"))
+        .args([
+            "--json",
+            "--property",
+            "--polcap",
+            "--bool",
+            "--attribute",
+            "--category",
+            "--sensitivity",
+        ])
+        .arg(&left.0)
+        .arg(&right.0)
+        .output()
+        .expect("sediff --json should execute");
+
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let expected = format!(
+        concat!(
+            "{{\"schema\":\"setools-rs.sediff\",\"schema_version\":1,",
+            "\"tool\":{{\"name\":\"sediff\",\"version\":\"4.7.1\"}},",
+            "\"policy\":{{\"left_path\":\"{}\",\"right_path\":\"{}\"}},",
+            "\"query\":{{\"all\":false,\"stats\":false,\"components\":[",
+            "\"property\",\"polcap\",\"boolean\",\"attribute\",",
+            "\"category\",\"sensitivity\"]}},\"result_count\":14,\"results\":[",
+            "{{\"component\":\"property\",\"description\":\"Policy Properties\",",
+            "\"counts\":{{\"added\":0,\"removed\":0,\"modified\":0}},",
+            "\"added\":[],\"removed\":[],\"modified\":[]}},",
+            "{{\"component\":\"polcap\",\"description\":\"Policy Capabilities\",",
+            "\"counts\":{{\"added\":1,\"removed\":1,\"modified\":0}},",
+            "\"added\":[\"always_check_network\"],",
+            "\"removed\":[\"network_peer_controls\"],\"modified\":[]}},",
+            "{{\"component\":\"boolean\",\"description\":\"Booleans\",",
+            "\"counts\":{{\"added\":1,\"removed\":1,\"modified\":1}},",
+            "\"added\":[\"added_bool\"],\"removed\":[\"removed_bool\"],",
+            "\"modified\":[{{\"summary\":\"modified_bool (Modified default state)\",",
+            "\"details\":[\"+ True\",\"- False\"]}}]}},",
+            "{{\"component\":\"attribute\",\"description\":\"Type Attributes\",",
+            "\"counts\":{{\"added\":1,\"removed\":1,\"modified\":1}},",
+            "\"added\":[\"added_attr\"],\"removed\":[\"removed_attr\"],",
+            "\"modified\":[{{\"summary\":",
+            "\"changing_attr (1 Added types, 1 Removed types)\",",
+            "\"details\":[\"+ right_member\",\"- left_member\"]}}]}},",
+            "{{\"component\":\"category\",\"description\":\"Categories\",",
+            "\"counts\":{{\"added\":1,\"removed\":1,\"modified\":1}},",
+            "\"added\":[\"added_category\"],\"removed\":[\"removed_category\"],",
+            "\"modified\":[{{\"summary\":",
+            "\"c0 (1 Added Aliases, 1 Removed Aliases)\",",
+            "\"details\":[\"Aliases:\",\"+ added_category_alias\",",
+            "\"- removed_category_alias\"]}}]}},",
+            "{{\"component\":\"sensitivity\",\"description\":\"Sensitivities\",",
+            "\"counts\":{{\"added\":1,\"removed\":1,\"modified\":1}},",
+            "\"added\":[\"added_sensitivity\"],",
+            "\"removed\":[\"removed_sensitivity\"],",
+            "\"modified\":[{{\"summary\":",
+            "\"s0 (1 Added Aliases, 1 Removed Aliases)\",",
+            "\"details\":[\"Aliases:\",\"+ added_sens_alias\",",
+            "\"- removed_sens_alias\"]}}]}}]}}\n"
+        ),
+        left.0.display(),
+        right.0.display(),
+    );
+    assert_eq!(output.stdout, expected.as_bytes());
+}
+
+#[test]
+fn sediff_json_stats_and_empty_all_query_preserve_the_contract() {
+    let left = CompiledPolicy::build_fixture("diff-simple-left.conf", None);
+    let right = CompiledPolicy::build_fixture("diff-simple-right.conf", None);
+    let stats = Command::new(env!("CARGO_BIN_EXE_sediff"))
+        .args(["--json", "--stats", "--property", "--polcap"])
+        .arg(&left.0)
+        .arg(&right.0)
+        .output()
+        .expect("sediff --json --stats should execute");
+    assert!(stats.status.success());
+    assert!(stats.stderr.is_empty());
+    let stats = String::from_utf8(stats.stdout).expect("JSON should be UTF-8");
+    assert!(stats.contains("\"stats\":true"));
+    assert!(stats.contains("\"result_count\":2"));
+    assert!(stats.contains(
+        "\"component\":\"polcap\",\"description\":\"Policy Capabilities\",\"counts\":{\"added\":1,\"removed\":1,\"modified\":0},\"added\":[],\"removed\":[],\"modified\":[]"
+    ));
+
+    let empty = Command::new(env!("CARGO_BIN_EXE_sediff"))
+        .arg("--json")
+        .arg(&left.0)
+        .arg(&left.0)
+        .output()
+        .expect("identical sediff --json should execute");
+    assert!(empty.status.success());
+    assert!(empty.stderr.is_empty());
+    let empty = String::from_utf8(empty.stdout).expect("JSON should be UTF-8");
+    assert!(empty.contains(
+        "\"query\":{\"all\":true,\"stats\":false,\"components\":[]},\"result_count\":0,\"results\":[]"
+    ));
+}
+
+#[test]
+fn sediff_json_preserves_help_and_error_contracts() {
+    let help = Command::new(env!("CARGO_BIN_EXE_sediff"))
+        .args(["--json", "--help"])
+        .output()
+        .expect("sediff help should execute");
+    assert!(help.status.success());
+    assert!(help.stderr.is_empty());
+    assert!(!help.stdout.windows(6).any(|value| value == b"--json"));
+
+    let missing = Command::new(env!("CARGO_BIN_EXE_sediff"))
+        .args(["--json", "left"])
+        .output()
+        .expect("sediff usage error should execute");
+    assert_eq!(missing.status.code(), Some(2));
+    assert!(missing.stdout.is_empty());
+    assert!(
+        missing
+            .stderr
+            .ends_with(b"sediff: error: the following arguments are required: POLICY2\n")
+    );
+}
+
+#[test]
 fn sediff_accepts_every_component_and_defaults_to_all_differences() {
     let left = CompiledPolicy::build_fixture("diff-simple-left.conf", None);
     let right = CompiledPolicy::build_fixture("diff-simple-right.conf", None);
@@ -662,6 +787,24 @@ fn sediff_accepts_every_component_and_defaults_to_all_differences() {
         assert!(explicit.contains(heading), "missing {heading} section");
     }
 
+    let json_stats = Command::new(env!("CARGO_BIN_EXE_sediff"))
+        .args(["--json", "--stats"])
+        .args(components)
+        .arg(&left.0)
+        .arg(&right.0)
+        .output()
+        .expect("complete sediff --json should execute");
+    assert!(json_stats.status.success());
+    assert!(json_stats.stderr.is_empty());
+    let json_stats = String::from_utf8(json_stats.stdout).expect("sediff JSON should be UTF-8");
+    assert_eq!(
+        json_stats.matches("\"component\":").count(),
+        components.len()
+    );
+    assert!(!json_stats.contains("\"added\":[\""));
+    assert!(!json_stats.contains("\"removed\":[\""));
+    assert!(!json_stats.contains("\"modified\":[{"));
+
     let all = Command::new(env!("CARGO_BIN_EXE_sediff"))
         .arg(&left.0)
         .arg(&right.0)
@@ -720,6 +863,141 @@ fn sedta_reports_transitions_paths_and_graph_statistics() {
             "\n\n2 domain transition path(s) found.\n",
         )
         .as_bytes()
+    );
+}
+
+#[test]
+fn sedta_emits_versioned_json_for_transitions_and_statistics() {
+    let policy = CompiledPolicy::build_fixture("dta.conf", None);
+    let output = Command::new(env!("CARGO_BIN_EXE_sedta"))
+        .args(["--json", "--source", "alpha", "--stats"])
+        .arg("--policy")
+        .arg(&policy.0)
+        .output()
+        .expect("sedta --json should execute");
+
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let expected = format!(
+        concat!(
+            "{{\"schema\":\"setools-rs.sedta\",\"schema_version\":1,",
+            "\"tool\":{{\"name\":\"sedta\",\"version\":\"4.7.1\"}},",
+            "\"policy\":{{\"path\":\"{}\"}},",
+            "\"query\":{{\"mode\":\"transitions_out\",\"source\":\"alpha\",",
+            "\"target\":null,\"reverse\":false,\"max_steps\":null,",
+            "\"limit\":0,\"exclude\":[],\"full\":false,\"stats\":true}},",
+            "\"result_type\":\"transition\",",
+            "\"statistics\":{{\"nodes\":8,\"edges\":5}},\"result_count\":2,",
+            "\"results\":[",
+            "{{\"kind\":\"transition\",\"source\":\"alpha\",",
+            "\"target\":\"beta\",\"details\":null}},",
+            "{{\"kind\":\"transition\",\"source\":\"alpha\",",
+            "\"target\":\"dynamic\",\"details\":null}}]}}\n"
+        ),
+        policy.0.display(),
+    );
+    assert_eq!(output.stdout, expected.as_bytes());
+}
+
+#[test]
+fn sedta_json_covers_paths_limits_and_full_rule_details() {
+    let policy = CompiledPolicy::build_fixture("dta.conf", None);
+    let path = Command::new(env!("CARGO_BIN_EXE_sedta"))
+        .args(["--json", "-s", "alpha", "-t", "delta", "-A", "3", "-l", "1"])
+        .arg("-p")
+        .arg(&policy.0)
+        .output()
+        .expect("sedta path JSON should execute");
+    assert!(path.status.success());
+    assert!(path.stderr.is_empty());
+    let expected_path = format!(
+        concat!(
+            "{{\"schema\":\"setools-rs.sedta\",\"schema_version\":1,",
+            "\"tool\":{{\"name\":\"sedta\",\"version\":\"4.7.1\"}},",
+            "\"policy\":{{\"path\":\"{}\"}},",
+            "\"query\":{{\"mode\":\"all_paths\",\"source\":\"alpha\",",
+            "\"target\":\"delta\",\"reverse\":false,\"max_steps\":3,",
+            "\"limit\":1,\"exclude\":[],\"full\":false,\"stats\":false}},",
+            "\"result_type\":\"path\",\"statistics\":null,\"result_count\":1,",
+            "\"results\":[{{\"kind\":\"path\",\"step_count\":3,\"steps\":[",
+            "{{\"source\":\"alpha\",\"target\":\"beta\",\"details\":null}},",
+            "{{\"source\":\"beta\",\"target\":\"gamma\",\"details\":null}},",
+            "{{\"source\":\"gamma\",\"target\":\"delta\",",
+            "\"details\":null}}]}}]}}\n"
+        ),
+        policy.0.display(),
+    );
+    assert_eq!(path.stdout, expected_path.as_bytes());
+
+    let full = Command::new(env!("CARGO_BIN_EXE_sedta"))
+        .args(["--json", "-s", "dynamic", "--full"])
+        .arg("-p")
+        .arg(&policy.0)
+        .output()
+        .expect("sedta full JSON should execute");
+    assert!(full.status.success());
+    assert!(full.stderr.is_empty());
+    let full = String::from_utf8(full.stdout).expect("JSON should be UTF-8");
+    for expected in [
+        "\"result_type\":\"transition\"",
+        "\"source\":\"dynamic\",\"target\":\"delta\"",
+        "\"transition_rules\":[\"allow dynamic delta:process { dyntransition transition };\"]",
+        "\"setexec_rules\":[\"allow dynamic dynamic:process { setcurrent setexec };\"]",
+        "\"name\":\"dynamic_exec\"",
+        "\"entrypoint_rules\":[\"allow delta dynamic_exec:file entrypoint;\"]",
+        "\"execute_rules\":[\"allow dynamic dynamic_exec:file execute;\"]",
+        "\"type_transition_rules\":[\"type_transition dynamic dynamic_exec:process delta;\"]",
+        "\"dyntransition_rules\":[\"allow dynamic delta:process { dyntransition transition };\"]",
+        "\"setcurrent_rules\":[\"allow dynamic dynamic:process { setcurrent setexec };\"]",
+    ] {
+        assert!(full.contains(expected), "missing JSON detail: {expected}");
+    }
+}
+
+#[test]
+fn sedta_json_preserves_empty_help_and_error_contracts() {
+    let policy = CompiledPolicy::build_fixture("dta.conf", None);
+    let empty = Command::new(env!("CARGO_BIN_EXE_sedta"))
+        .args(["--json", "-s", "delta"])
+        .arg("-p")
+        .arg(&policy.0)
+        .output()
+        .expect("empty sedta JSON should execute");
+    assert!(empty.status.success());
+    assert!(empty.stderr.is_empty());
+    let empty = String::from_utf8(empty.stdout).expect("JSON should be UTF-8");
+    assert!(empty.contains(
+        "\"result_type\":\"transition\",\"statistics\":null,\"result_count\":0,\"results\":[]"
+    ));
+
+    let help = Command::new(env!("CARGO_BIN_EXE_sedta"))
+        .args(["--json", "--help"])
+        .output()
+        .expect("sedta help should execute");
+    assert!(help.status.success());
+    assert!(help.stderr.is_empty());
+    assert!(!help.stdout.windows(6).any(|value| value == b"--json"));
+
+    let unknown = Command::new(env!("CARGO_BIN_EXE_sedta"))
+        .args(["--json", "-s", "missing"])
+        .arg("-p")
+        .arg(&policy.0)
+        .output()
+        .expect("sedta invalid-type JSON query should execute");
+    assert_eq!(unknown.status.code(), Some(1));
+    assert_eq!(unknown.stdout, b"missing is not a valid type\n");
+    assert!(unknown.stderr.is_empty());
+
+    let output_conflict = Command::new(env!("CARGO_BIN_EXE_sedta"))
+        .args(["--json", "-s", "alpha", "--output_file", "graph.png"])
+        .output()
+        .expect("sedta conflicting output modes should execute");
+    assert_eq!(output_conflict.status.code(), Some(2));
+    assert!(output_conflict.stdout.is_empty());
+    assert!(
+        output_conflict
+            .stderr
+            .ends_with(b"sedta: error: --json cannot be used with --output_file.\n")
     );
 }
 
@@ -840,6 +1118,191 @@ fn seinfoflow_reports_direct_flows_paths_booleans_and_statistics() {
 }
 
 #[test]
+fn seinfoflow_emits_versioned_json_for_flows_and_statistics() {
+    let policy = CompiledPolicy::build_fixture("infoflow.conf", None);
+    let permission_map =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../setools-graph/tests/fixtures/perm_map");
+    let output = Command::new(env!("CARGO_BIN_EXE_seinfoflow"))
+        .args([
+            "--json",
+            "-s",
+            "flow_source",
+            "--full",
+            "--stats",
+            "-w",
+            "1",
+            "-b",
+            "default",
+        ])
+        .arg("-p")
+        .arg(&policy.0)
+        .arg("-m")
+        .arg(&permission_map)
+        .output()
+        .expect("seinfoflow --json should execute");
+
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let expected = format!(
+        concat!(
+            "{{\"schema\":\"setools-rs.seinfoflow\",\"schema_version\":1,",
+            "\"tool\":{{\"name\":\"seinfoflow\",\"version\":\"4.7.1\"}},",
+            "\"policy\":{{\"path\":\"{}\"}},",
+            "\"query\":{{\"mode\":\"flows_out\",\"source\":\"flow_source\",",
+            "\"target\":null,\"reverse\":false,\"max_steps\":null,",
+            "\"minimum_weight\":1,\"limit\":0,\"exclude\":[],",
+            "\"booleans\":{{\"mode\":\"default\",\"values\":[]}},",
+            "\"permission_map\":{{\"kind\":\"file\",\"path\":\"{}\"}},",
+            "\"full\":true,\"stats\":true}},\"result_type\":\"flow\",",
+            "\"statistics\":{{\"nodes\":7,\"edges\":6}},\"result_count\":3,",
+            "\"results\":[",
+            "{{\"kind\":\"flow\",\"source\":\"flow_source\",",
+            "\"target\":\"middle\",\"weight\":5,\"rules\":[",
+            "\"allow flow_source middle:channel write_low;\",",
+            "\"allow middle flow_source:channel read_medium;\"]}},",
+            "{{\"kind\":\"flow\",\"source\":\"flow_source\",",
+            "\"target\":\"low_target\",\"weight\":1,\"rules\":[",
+            "\"allow flow_source low_target:channel write_low;\"]}},",
+            "{{\"kind\":\"flow\",\"source\":\"flow_source\",",
+            "\"target\":\"flow_false\",\"weight\":10,\"rules\":[",
+            "\"allow flow_source flow_false:channel write_high; [ enabled ]:False\"]}}]}}\n"
+        ),
+        policy.0.display(),
+        permission_map.display(),
+    );
+    assert_eq!(output.stdout, expected.as_bytes());
+}
+
+#[test]
+fn seinfoflow_json_covers_paths_weights_booleans_and_limits() {
+    let policy = CompiledPolicy::build_fixture("infoflow.conf", None);
+    let permission_map =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../setools-graph/tests/fixtures/perm_map");
+    let path = Command::new(env!("CARGO_BIN_EXE_seinfoflow"))
+        .args(["--json", "-s", "flow_source", "-t", "flow_target", "-S"])
+        .arg("-p")
+        .arg(&policy.0)
+        .arg("-m")
+        .arg(&permission_map)
+        .output()
+        .expect("seinfoflow path JSON should execute");
+    assert!(path.status.success());
+    assert!(path.stderr.is_empty());
+    let expected_path = format!(
+        concat!(
+            "{{\"schema\":\"setools-rs.seinfoflow\",\"schema_version\":1,",
+            "\"tool\":{{\"name\":\"seinfoflow\",\"version\":\"4.7.1\"}},",
+            "\"policy\":{{\"path\":\"{}\"}},",
+            "\"query\":{{\"mode\":\"shortest_paths\",",
+            "\"source\":\"flow_source\",\"target\":\"flow_target\",",
+            "\"reverse\":false,\"max_steps\":null,\"minimum_weight\":3,",
+            "\"limit\":0,\"exclude\":[],\"booleans\":null,",
+            "\"permission_map\":{{\"kind\":\"file\",\"path\":\"{}\"}},",
+            "\"full\":false,\"stats\":false}},\"result_type\":\"path\",",
+            "\"statistics\":null,\"result_count\":1,\"results\":[",
+            "{{\"kind\":\"path\",\"step_count\":2,\"steps\":[",
+            "{{\"source\":\"flow_source\",\"target\":\"middle\",",
+            "\"weight\":5,\"rules\":null}},",
+            "{{\"source\":\"middle\",\"target\":\"flow_target\",",
+            "\"weight\":10,\"rules\":null}}]}}]}}\n"
+        ),
+        policy.0.display(),
+        permission_map.display(),
+    );
+    assert_eq!(path.stdout, expected_path.as_bytes());
+
+    let assigned = Command::new(env!("CARGO_BIN_EXE_seinfoflow"))
+        .args([
+            "--json",
+            "-s",
+            "flow_source",
+            "-w",
+            "1",
+            "-b",
+            "enabled:true",
+            "-l",
+            "2",
+        ])
+        .arg("-p")
+        .arg(&policy.0)
+        .arg("-m")
+        .arg(&permission_map)
+        .output()
+        .expect("seinfoflow assigned-Boolean JSON should execute");
+    assert!(assigned.status.success());
+    assert!(assigned.stderr.is_empty());
+    let assigned = String::from_utf8(assigned.stdout).expect("JSON should be UTF-8");
+    assert!(assigned.contains(
+        "\"booleans\":{\"mode\":\"assignments\",\"values\":[{\"name\":\"enabled\",\"state\":true}]}"
+    ));
+    assert!(assigned.contains("\"result_count\":2"));
+    assert_eq!(assigned.matches("\"kind\":\"flow\"").count(), 2);
+}
+
+#[test]
+fn seinfoflow_json_preserves_empty_help_and_error_contracts() {
+    let policy = CompiledPolicy::build_fixture("infoflow.conf", None);
+    let permission_map =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../setools-graph/tests/fixtures/perm_map");
+    let empty = Command::new(env!("CARGO_BIN_EXE_seinfoflow"))
+        .args(["--json", "-s", "low_target"])
+        .arg("-p")
+        .arg(&policy.0)
+        .arg("-m")
+        .arg(&permission_map)
+        .output()
+        .expect("empty seinfoflow JSON should execute");
+    assert!(empty.status.success());
+    assert!(empty.stderr.is_empty());
+    let empty = String::from_utf8(empty.stdout).expect("JSON should be UTF-8");
+    assert!(empty.contains(
+        "\"result_type\":\"flow\",\"statistics\":null,\"result_count\":0,\"results\":[]"
+    ));
+
+    let built_in = Command::new(env!("CARGO_BIN_EXE_seinfoflow"))
+        .args(["--json", "-s", "flow_source"])
+        .arg("-p")
+        .arg(&policy.0)
+        .output()
+        .expect("built-in permission-map JSON should execute");
+    assert!(built_in.status.success());
+    let built_in = String::from_utf8(built_in.stdout).expect("JSON should be UTF-8");
+    assert!(built_in.contains("\"permission_map\":{\"kind\":\"built_in\",\"path\":null}"));
+
+    let help = Command::new(env!("CARGO_BIN_EXE_seinfoflow"))
+        .args(["--json", "--help"])
+        .output()
+        .expect("seinfoflow help should execute");
+    assert!(help.status.success());
+    assert!(help.stderr.is_empty());
+    assert!(!help.stdout.windows(6).any(|value| value == b"--json"));
+
+    let unknown = Command::new(env!("CARGO_BIN_EXE_seinfoflow"))
+        .args(["--json", "-s", "missing"])
+        .arg("-p")
+        .arg(&policy.0)
+        .arg("-m")
+        .arg(&permission_map)
+        .output()
+        .expect("seinfoflow invalid-type JSON query should execute");
+    assert_eq!(unknown.status.code(), Some(1));
+    assert_eq!(unknown.stdout, b"missing is not a valid type\n");
+    assert!(unknown.stderr.is_empty());
+
+    let output_conflict = Command::new(env!("CARGO_BIN_EXE_seinfoflow"))
+        .args(["--json", "-s", "flow_source", "--output_file", "graph.png"])
+        .output()
+        .expect("seinfoflow conflicting output modes should execute");
+    assert_eq!(output_conflict.status.code(), Some(2));
+    assert!(output_conflict.stdout.is_empty());
+    assert!(
+        output_conflict
+            .stderr
+            .ends_with(b"seinfoflow: error: --json cannot be used with --output_file.\n")
+    );
+}
+
+#[test]
 fn seinfoflow_preserves_reverse_filter_and_error_contracts() {
     let policy = CompiledPolicy::build_fixture("infoflow.conf", None);
     let permission_map =
@@ -882,6 +1345,147 @@ fn seinfoflow_preserves_reverse_filter_and_error_contracts() {
         missing_target.stderr.ends_with(
             b"seinfoflow: error: The target type must be specified to determine a path.\n"
         )
+    );
+}
+
+#[test]
+fn sechecker_emits_versioned_json_for_all_check_types() {
+    let policy = CompiledPolicy::build_fixture("checker.conf", None);
+    let config =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../setools-checker/tests/fixtures/pass.ini");
+    let output = Command::new(env!("CARGO_BIN_EXE_sechecker"))
+        .arg("--json")
+        .arg(&config)
+        .arg(&policy.0)
+        .output()
+        .expect("sechecker --json should execute");
+
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let expected = format!(
+        concat!(
+            "{{\"schema\":\"setools-rs.sechecker\",\"schema_version\":1,",
+            "\"tool\":{{\"name\":\"sechecker\",\"version\":\"4.7.1\"}},",
+            "\"policy\":{{\"path\":\"{}\"}},",
+            "\"query\":{{\"configuration_path\":\"{}\"}},",
+            "\"summary\":{{\"check_count\":7,\"passed_check_count\":6,",
+            "\"failed_check_count\":0,\"disabled_check_count\":1,",
+            "\"failure_count\":0}},\"result_count\":7,\"results\":[",
+            "{{\"name\":\"empty\",\"description\":\"empty attribute passes\",",
+            "\"check_type\":\"empty_typeattr\",\"status\":\"passed\",",
+            "\"failure_count\":0,\"details\":{{\"kind\":\"empty_typeattr\",",
+            "\"attribute\":\"empty_attr\",\"missing\":false,\"members\":[]}}}},",
+            "{{\"name\":\"missing\",\"description\":null,",
+            "\"check_type\":\"empty_typeattr\",\"status\":\"passed\",",
+            "\"failure_count\":0,\"details\":{{\"kind\":\"empty_typeattr\",",
+            "\"attribute\":\"optional_attr\",\"missing\":true,\"members\":[]}}}},",
+            "{{\"name\":\"te\",\"description\":null,",
+            "\"check_type\":\"assert_te\",\"status\":\"passed\",",
+            "\"failure_count\":0,\"details\":{{\"kind\":\"assert_te\",",
+            "\"rules\":[],\"missing_sources\":[],\"missing_targets\":[]}}}},",
+            "{{\"name\":\"rbac\",\"description\":null,",
+            "\"check_type\":\"assert_rbac\",\"status\":\"passed\",",
+            "\"failure_count\":0,\"details\":{{\"kind\":\"assert_rbac\",",
+            "\"rules\":[],\"missing_sources\":[],\"missing_targets\":[]}}}},",
+            "{{\"name\":\"executables\",\"description\":null,",
+            "\"check_type\":\"ro_execs\",\"status\":\"passed\",",
+            "\"failure_count\":0,\"details\":{{\"kind\":\"read_only\",",
+            "\"category\":\"executable\",\"checked_types\":[\"executable\"],",
+            "\"files\":[]}}}},",
+            "{{\"name\":\"modules\",\"description\":null,",
+            "\"check_type\":\"ro_kmods\",\"status\":\"passed\",",
+            "\"failure_count\":0,\"details\":{{\"kind\":\"read_only\",",
+            "\"category\":\"kernel_module\",",
+            "\"checked_types\":[\"kernel_module\"],\"files\":[]}}}},",
+            "{{\"name\":\"disabled\",\"description\":null,",
+            "\"check_type\":\"empty_typeattr\",\"status\":\"disabled\",",
+            "\"failure_count\":0,\"details\":{{\"kind\":\"disabled\",",
+            "\"reason\":\"accepted exception\"}}}}]}}\n"
+        ),
+        policy.0.display(),
+        config.display(),
+    );
+    assert_eq!(output.stdout, expected.as_bytes());
+}
+
+#[test]
+fn sechecker_json_preserves_findings_and_failure_status() {
+    let policy = CompiledPolicy::build_fixture("checker.conf", None);
+    let config =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../setools-checker/tests/fixtures/fail.ini");
+    let output = Command::new(env!("CARGO_BIN_EXE_sechecker"))
+        .args(["--json", "--verbose"])
+        .arg(&config)
+        .arg(&policy.0)
+        .output()
+        .expect("failing sechecker JSON should execute");
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stderr.ends_with(b"8 failures found in 7 checks.\n"));
+    let stdout = String::from_utf8(output.stdout).expect("JSON should be UTF-8");
+    for expected in [
+        "\"summary\":{\"check_count\":7,\"passed_check_count\":0,\"failed_check_count\":7,\"disabled_check_count\":0,\"failure_count\":8}",
+        "\"name\":\"nonempty\",\"description\":null,\"check_type\":\"empty_typeattr\",\"status\":\"failed\",\"failure_count\":1,\"details\":{\"kind\":\"empty_typeattr\",\"attribute\":\"nonempty_attr\",\"missing\":false,\"members\":[\"attribute_member\"]}",
+        "\"kind\":\"assert_te\",\"rules\":[\"allow te_source te_target:file read;\"]",
+        "\"missing_sources\":[\"expected_but_absent\"]",
+        "\"kind\":\"assert_rbac\",\"rules\":[\"allow source_role target_role;\"]",
+        "\"missing_targets\":[\"absent_role\"]",
+        "\"category\":\"executable\",\"checked_types\":[\"executable\"],\"files\":[{\"type_name\":\"executable\",\"use_rules\":[\"allow exec_domain executable:file execute;\"],\"write_rules\":[\"allow writer executable:file write;\"]}]",
+        "\"category\":\"kernel_module\",\"checked_types\":[\"kernel_module\"],\"files\":[{\"type_name\":\"kernel_module\",\"use_rules\":[\"allow loader kernel_module:system module_load;\"],\"write_rules\":[\"allow writer kernel_module:file append;\"]}]",
+    ] {
+        assert!(stdout.contains(expected), "missing JSON result: {expected}");
+    }
+}
+
+#[test]
+fn sechecker_json_preserves_help_and_error_contracts() {
+    let policy = CompiledPolicy::build_fixture("checker.conf", None);
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../setools-checker/tests/fixtures");
+
+    let help = Command::new(env!("CARGO_BIN_EXE_sechecker"))
+        .args(["--json", "--help"])
+        .output()
+        .expect("sechecker help should execute");
+    assert!(help.status.success());
+    assert!(help.stderr.is_empty());
+    assert!(!help.stdout.windows(6).any(|value| value == b"--json"));
+
+    let invalid = Command::new(env!("CARGO_BIN_EXE_sechecker"))
+        .arg("--json")
+        .arg(fixtures.join("invalid.ini"))
+        .arg(&policy.0)
+        .output()
+        .expect("invalid sechecker JSON config should execute");
+    assert_eq!(invalid.status.code(), Some(2));
+    assert_eq!(invalid.stdout, b"invalid: Invalid option: unknown_option\n");
+    assert!(invalid.stderr.is_empty());
+
+    let missing_policy = Command::new(env!("CARGO_BIN_EXE_sechecker"))
+        .arg("--json")
+        .arg(fixtures.join("pass.ini"))
+        .arg(fixtures.join("missing.policy"))
+        .output()
+        .expect("missing-policy sechecker JSON should execute");
+    assert_eq!(missing_policy.status.code(), Some(3));
+    assert!(missing_policy.stderr.is_empty());
+    assert!(
+        missing_policy
+            .stdout
+            .starts_with(b"[Errno 2] No such file or directory:")
+    );
+
+    let output_conflict = Command::new(env!("CARGO_BIN_EXE_sechecker"))
+        .args(["--json", "--output_file", "report.txt"])
+        .arg(fixtures.join("pass.ini"))
+        .arg(&policy.0)
+        .output()
+        .expect("sechecker conflicting output modes should execute");
+    assert_eq!(output_conflict.status.code(), Some(2));
+    assert!(output_conflict.stdout.is_empty());
+    assert!(
+        output_conflict
+            .stderr
+            .ends_with(b"sechecker: error: --json cannot be used with --output_file.\n")
     );
 }
 

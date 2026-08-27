@@ -7,6 +7,7 @@ members = [
     "crates/setools-policy",
     "crates/setools-query",
     "crates/setools-sepol",
+    "xtask",
 ]
 default-members = ["crates/setools-cli"]
 resolver = "3"
