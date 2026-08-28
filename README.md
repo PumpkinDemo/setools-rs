@@ -178,6 +178,13 @@ the source archive vendors the locked Cargo dependencies for offline rebuilds.
 The native compatibility archive additionally includes the exact libsepol
 source. See [the release guide](RELEASING.md) and [third-party notice](THIRD_PARTY.md).
 
+Pushing a tag whose name exactly matches the package version, such as
+`v4.7.1`, starts the GitHub Actions release workflow. It runs the full Fedora
+workspace verification, builds and smoke-tests the pure Rust portable archive
+on x86_64 Linux, checks its checksum, then creates or updates the matching
+GitHub Release with the archive and `.sha256` file. See
+[the release guide](RELEASING.md) for the tag command and repository setting.
+
 Cargo uses its standard output layout:
 
 ```text

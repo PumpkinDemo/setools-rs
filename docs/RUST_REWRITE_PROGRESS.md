@@ -183,6 +183,12 @@ CLI 兼容目标：SETools 4.7.1
   libsepol，仍要求六个 binary 均为无 ELF `NEEDED` 的 static PIE。2026-08-28 使用当前
   1.9 MiB policy 完成 smoke test；`--native-libsepol` 保留原 static native archive
   与其对应 libsepol source。
+- [x] `.github/workflows/release.yml` 在 `v*` tag push 时自动运行：先于 Fedora
+  container 完整验证 workspace，再在 x86_64 Ubuntu 构建/smoke-test default pure Rust
+  archive、检查 checksum，并以只授予 `contents: write` 的 `GITHUB_TOKEN` 创建或更新
+  同名 GitHub Release。workflow 会拒绝与 Cargo package version 不一致的 tag；重跑只会
+  覆盖 archive 与 `.sha256` 两个 asset。CI 的 portable artifact job 同步改为 pure Rust
+  archive name/path。
 
 ## 后续里程碑
 

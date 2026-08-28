@@ -56,6 +56,19 @@ Crates.io publication remains disabled until the public library APIs stabilize.
    git push origin main v4.7.1
    ```
 
+   Pushing the `v4.7.1` tag starts `.github/workflows/release.yml`. It first
+   runs the same full Fedora workspace verification as CI, then builds the
+   pure Rust static archive on x86_64 Linux and creates or updates GitHub
+   Release `v4.7.1`. The workflow checks that the tag exactly matches the
+   Cargo workspace version before it can publish, and uploads both the archive
+   and its `.sha256` file. Re-running the same tag workflow replaces those two
+   assets rather than creating a second release.
+
+   The release job grants only `contents: write` to its `GITHUB_TOKEN`, which
+   is required to create a GitHub Release. If an organization policy prevents
+   that permission, enable Actions write access for this repository or provide
+   an equivalent narrowly scoped release credential before pushing the tag.
+
 6. Create a source archive directly from the tag:
 
    ```bash
@@ -64,10 +77,10 @@ Crates.io publication remains disabled until the public library APIs stabilize.
    sha256sum setools-rs-4.7.1.tar.gz
    ```
 
-7. Attach the pure Rust portable archive and its `.sha256` file to the release.
-   The packaging script already includes `README.md`, `COPYING`, both license
-   texts, man pages, Bash/Zsh/Fish completions, and the setools-rs corresponding
-   source with locked Cargo dependencies vendored for offline rebuilds. A native
+7. Check the automated GitHub Release and its uploaded pure Rust archive. The
+   packaging script already includes `README.md`, `COPYING`, both license texts,
+   man pages, Bash/Zsh/Fish completions, and the setools-rs corresponding source
+   with locked Cargo dependencies vendored for offline rebuilds. A native
    compatibility archive additionally includes the exact libsepol source. Do
    not label untested architectures or platforms as supported.
 

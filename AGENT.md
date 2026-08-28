@@ -103,6 +103,11 @@ CLI 兼容目标是 SETools 4.7.1。新格式或 API 只能作为附加能力引
   `NEEDED`。`--native-libsepol` 是保留的 static compatibility flavor；它固定并校验
   libsepol 3.11，随包带对应 source。两种 archive 都包含六个 binary、license、
   man/completion、校验清单和 setools-rs corresponding source。ADR 0004 记录边界。
+- GitHub tag release 自动化位于 `.github/workflows/release.yml`：push 与 Cargo package
+  version 精确对应的 `v*` tag 后，workflow 先在 Fedora 完整验证 workspace，再构建默认
+  pure Rust static archive 并创建/更新同名 GitHub Release；只为 publish job 授予
+  `contents: write`。不要在 release workflow 中引入父目录、legacy oracle 或默认 native
+  dependency。
 - M7 已完成全部八个 symbol family：独立、零 unsafe/FFI 的
   `setools-policy-binary` 实现 version 15..=35 的 SELinux/Xen header、compatibility
   table、前置 ebitmap、common、object-class、role、type、user、Boolean、sensitivity 与
