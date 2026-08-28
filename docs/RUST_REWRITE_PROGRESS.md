@@ -189,6 +189,10 @@ CLI 兼容目标：SETools 4.7.1
   同名 GitHub Release。workflow 会拒绝与 Cargo package version 不一致的 tag；重跑只会
   覆盖 archive 与 `.sha256` 两个 asset。CI 的 portable artifact job 同步改为 pure Rust
   archive name/path。
+- [x] release workflow 同时提供 `workflow_dispatch` 的必填 `tag` 输入。若 tag 早于
+  workflow、或 release 只显示 GitHub 自动生成的 source archives，可在 Actions 页面指定
+  既有 `v*` tag 手动补跑；它 checkout 该 tag、再次验证 version，并以 `--clobber` 补上
+  binary archive 与 checksum，而不新建第二个 release。
 - [x] release script 在 build 前执行 `cargo fetch --locked`。pure Rust build 本身不会
   编译 optional native crate 的 `cc` build-dependency，但 corresponding-source bundle 的
   `cargo vendor --offline` 必须覆盖完整 lockfile；这一预取使 fresh GitHub runner 也能在

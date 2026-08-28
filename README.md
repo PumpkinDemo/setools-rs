@@ -190,6 +190,9 @@ workspace verification, builds and smoke-tests the pure Rust portable archive
 on x86_64 Linux, checks its checksum, then creates or updates the matching
 GitHub Release with the archive and `.sha256` file. See
 [the release guide](RELEASING.md) for the tag command and repository setting.
+If a tag predates the workflow or a publish run needs retrying, open **Actions →
+Release → Run workflow**, enter that existing tag (for example `v4.7.1`), and
+the workflow will upload or replace the two binary assets on that release.
 
 Cargo uses its standard output layout:
 

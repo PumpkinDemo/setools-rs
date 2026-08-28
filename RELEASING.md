@@ -71,6 +71,12 @@ Crates.io publication remains disabled until the public library APIs stabilize.
    and its `.sha256` file. Re-running the same tag workflow replaces those two
    assets rather than creating a second release.
 
+   If the tag was pushed before this workflow existed, or a release currently
+   shows only GitHub's generated source archives, use **Actions → Release → Run
+   workflow**, enter the existing tag, and run it manually. It checks out that
+   tag, verifies its version, then uploads or replaces the binary archive and
+   checksum on the existing release.
+
    The release job grants only `contents: write` to its `GITHUB_TOKEN`, which
    is required to create a GitHub Release. If an organization policy prevents
    that permission, enable Actions write access for this repository or provide
