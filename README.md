@@ -163,6 +163,12 @@ binaries against a policy during packaging:
 scripts/build-portable-release.sh --policy /path/to/policy
 ```
 
+On a fresh checkout, the script first downloads the complete locked Cargo
+dependency set so that the corresponding-source bundle can vendor every locked
+crate offline. This includes build dependencies of the optional native
+compatibility feature, but does not download or link libsepol for the default
+pure Rust artifact.
+
 The optional static native compatibility artifact remains available for direct
 loader comparison. It downloads the official libsepol 3.11 source only when it
 is not cached, verifies its pinned SHA-256, and includes that corresponding

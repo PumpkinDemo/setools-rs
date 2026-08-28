@@ -123,6 +123,12 @@ readonly CARGO_TARGET_DIR="${build_dir}/cargo-target"
 export CARGO_TARGET_DIR
 export RUSTFLAGS="-C target-feature=+crt-static -C link-arg=-Wl,--build-id=none"
 
+# The corresponding-source bundle vendors every package locked for the
+# workspace, including build dependencies of the optional native compatibility
+# crate. A default pure Rust build does not otherwise need all of them. Fetch
+# first so the later offline vendor step works from an empty CI cache as well.
+cargo fetch --locked
+
 if [[ $release_mode == "native-libsepol" ]]; then
     export SETOOLS_LIBSEPOL_STATIC_ROOT="$LIBSEPOL_PREFIX"
     cargo build --locked --release -p setools-cli --features native-libsepol \

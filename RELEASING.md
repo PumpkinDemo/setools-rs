@@ -33,6 +33,13 @@ Crates.io publication remains disabled until the public library APIs stabilize.
    six tools. Record the rustc, target, loader, and linkage from
    `BUILD-INFO.txt` in the release notes.
 
+   A fresh checkout needs registry access for the script's initial
+   `cargo fetch --locked`: the corresponding-source bundle vendors every crate
+   in `Cargo.lock`, including build dependencies used only by the optional
+   native feature. `cargo vendor` itself is deliberately run offline after
+   that prefetch. The default artifact still does not download or link
+   libsepol.
+
    When a release needs the native compatibility flavor too, run the same
    command with `--native-libsepol`. It retains the historic
    `setools-rs-4.7.1-x86_64-linux-static.tar.gz` name and records its pinned
