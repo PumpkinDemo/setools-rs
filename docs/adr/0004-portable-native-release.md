@@ -43,18 +43,23 @@ The default portable artifact is an x86_64 Linux pure Rust static PIE. The
 release script enables Rust's static CRT, never downloads, compiles, or links
 libsepol in that mode, rejects any resulting ELF with a `DT_NEEDED` entry, runs
 all six `--version` commands, and can load a caller-supplied binary policy as a
-smoke test. Its archive name includes `pure-rust-static`.
+smoke test. Its concise archive name is
+`setools-rs-<version>-linux-x86_64.tar.gz`; static linkage remains a verified
+property rather than part of the filename.
 
 `scripts/build-portable-release.sh --native-libsepol` retains the static native
-bridge artifact under its historic `x86_64-linux-static` name. Only this mode
-downloads libsepol 3.11 from the upstream release URL, verifies its pinned
-SHA-256 before extraction, builds it without CIL or a shared library, and adds
-the exact libsepol source archive.
+bridge artifact with a `linux-x86_64-native` suffix so it cannot overwrite the
+default `setools-rs-<version>-linux-x86_64` package. Only this mode downloads
+libsepol 3.11 from the upstream release URL, verifies its pinned SHA-256 before
+extraction, and builds it without CIL or a shared library.
 
-Every archive includes the six stripped binaries, licenses, README, man pages,
-completions, per-file hashes, and the setools-rs source used for rebuilding.
-That source also vendors the exact Cargo dependency sources selected by
-`Cargo.lock` and contains an offline Cargo source configuration.
+Every binary archive contains only the six stripped executables under `bin/`.
+Its external `.sha256` file is published alongside it. The tagged repository
+and GitHub-generated source archives provide the project source, licenses,
+README, man pages, and completions without duplicating them in the binary
+package. The optional native flavor's exact libsepol version, URL, and digest
+remain pinned in the release script so its corresponding source can be fetched
+and published separately when that flavor is distributed.
 
 ## Consequences
 

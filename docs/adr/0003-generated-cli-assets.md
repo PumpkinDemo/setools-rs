@@ -11,7 +11,8 @@ of the byte-level compatibility contract. Replacing them with a CLI framework
 solely to generate release documentation would add dependencies and risk
 changing that contract.
 
-Release archives nevertheless need reviewable man pages and shell completions.
+Tagged releases nevertheless need reviewable man pages and shell completions in
+the source tree, even though the compact binary archive contains only binaries.
 Duplicating every public option and description in a separate generator would
 allow those assets to drift away from the text actually printed by each binary.
 The additive `--json` option is the one intentional exception: it is hidden
@@ -58,7 +59,8 @@ are checked with a man formatter in the development environment.
 - The frozen `--help` output and parser behavior do not change.
 - Updating a public help option requires regenerating and reviewing every
   affected man/completion artifact.
-- Source and binary releases can ship conventional, deterministic assets
-  without Python, legacy SETools, clap, or shell-completion dependencies.
+- Source releases can ship conventional, deterministic assets without Python,
+  legacy SETools, clap, or shell-completion dependencies; the compact binary
+  archive deliberately leaves them in the tagged source tree.
 - Completion is intentionally static. Adding policy-aware symbol completion
   later requires a separate design for latency, policy selection, and errors.

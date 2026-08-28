@@ -51,7 +51,7 @@ if [[ $(uname -s) != "Linux" || $(uname -m) != "x86_64" ]]; then
     exit 1
 fi
 
-for command in cargo file install readelf sha256sum strip tar; do
+for command in cargo file find install readelf sha256sum sort strip tar; do
     if ! command -v "$command" >/dev/null 2>&1; then
         printf 'required command is missing: %s\n' "$command" >&2
         exit 1
@@ -123,31 +123,21 @@ readonly CARGO_TARGET_DIR="${build_dir}/cargo-target"
 export CARGO_TARGET_DIR
 export RUSTFLAGS="-C target-feature=+crt-static -C link-arg=-Wl,--build-id=none"
 
-# The corresponding-source bundle vendors every package locked for the
-# workspace, including build dependencies of the optional native compatibility
-# crate. A default pure Rust build does not otherwise need all of them. Fetch
-# first so the later offline vendor step works from an empty CI cache as well.
-cargo fetch --locked
-
 if [[ $release_mode == "native-libsepol" ]]; then
     export SETOOLS_LIBSEPOL_STATIC_ROOT="$LIBSEPOL_PREFIX"
     cargo build --locked --release -p setools-cli --features native-libsepol \
         --bin sesearch --bin seinfo --bin sediff \
         --bin sedta --bin seinfoflow --bin sechecker
-    readonly PACKAGE_NAME="setools-rs-${PROJECT_VERSION}-x86_64-linux-static"
-    readonly BUILD_LOADER="native libsepol bridge"
-    readonly BUILD_LINKAGE="static PIE (static libsepol and static C/Rust runtime)"
+    readonly PACKAGE_NAME="setools-rs-${PROJECT_VERSION}-linux-x86_64-native"
 else
     cargo build --locked --release -p setools-cli \
         --bin sesearch --bin seinfo --bin sediff \
         --bin sedta --bin seinfoflow --bin sechecker
-    readonly PACKAGE_NAME="setools-rs-${PROJECT_VERSION}-x86_64-linux-pure-rust-static"
-    readonly BUILD_LOADER="pure Rust binary-policy parser"
-    readonly BUILD_LINKAGE="static PIE (static Rust and C runtime)"
+    readonly PACKAGE_NAME="setools-rs-${PROJECT_VERSION}-linux-x86_64"
 fi
 
 readonly PACKAGE_ROOT="${build_dir}/${PACKAGE_NAME}"
-install -d "$PACKAGE_ROOT/bin" "$PACKAGE_ROOT/LICENSES" "$PACKAGE_ROOT/sources"
+install -d "$PACKAGE_ROOT/bin"
 
 for binary in "${BINARIES[@]}"; do
     artifact="${CARGO_TARGET_DIR}/release/${binary}"
@@ -178,51 +168,13 @@ if [[ -n "$policy_path" ]]; then
     "$PACKAGE_ROOT/bin/sesearch" --allow "$policy_path" >/dev/null
 fi
 
-cp "$PROJECT_ROOT/README.md" "$PROJECT_ROOT/COPYING" "$PROJECT_ROOT/THIRD_PARTY.md" "$PACKAGE_ROOT/"
-cp "$PROJECT_ROOT/LICENSES/GPL-2.0-only.txt" "$PROJECT_ROOT/LICENSES/LGPL-2.1-only.txt" "$PACKAGE_ROOT/LICENSES/"
-cp -a "$PROJECT_ROOT/man" "$PROJECT_ROOT/completions" "$PACKAGE_ROOT/"
-if [[ $release_mode == "native-libsepol" ]]; then
-    cp "$libsepol_archive" "$PACKAGE_ROOT/sources/libsepol-${LIBSEPOL_VERSION}.tar.gz"
+expected_entries=$(printf 'bin/%s\n' "${BINARIES[@]}" | LC_ALL=C sort)
+actual_entries=$(cd "$PACKAGE_ROOT" && find . -type f -printf '%P\n' | LC_ALL=C sort)
+if [[ $actual_entries != "$expected_entries" ]]; then
+    printf 'portable archive must contain only the six CLI binaries\n' >&2
+    printf 'expected:\n%s\nactual:\n%s\n' "$expected_entries" "$actual_entries" >&2
+    exit 1
 fi
-
-readonly SOURCE_NAME="setools-rs-${PROJECT_VERSION}-source"
-readonly SOURCE_ROOT="${build_dir}/${SOURCE_NAME}"
-install -d "$SOURCE_ROOT"
-tar --exclude=.git --exclude=dist --exclude=target -cf - -C "$PROJECT_ROOT" . \
-    | tar -xf - -C "$SOURCE_ROOT"
-cargo vendor --locked --offline --versioned-dirs "$SOURCE_ROOT/vendor" >/dev/null
-install -d "$SOURCE_ROOT/.cargo"
-cat >"$SOURCE_ROOT/.cargo/config.toml" <<'EOF'
-[source.crates-io]
-replace-with = "vendored-sources"
-
-[source.vendored-sources]
-directory = "vendor"
-EOF
-tar --sort=name --mtime="@${source_epoch}" --owner=0 --group=0 --numeric-owner \
-    -czf "$PACKAGE_ROOT/sources/${SOURCE_NAME}.tar.gz" \
-    -C "$build_dir" "$SOURCE_NAME"
-
-cat >"$PACKAGE_ROOT/BUILD-INFO.txt" <<EOF
-setools-rs version: ${PROJECT_VERSION}
-target: x86_64-unknown-linux-gnu
-loader: ${BUILD_LOADER}
-linkage: ${BUILD_LINKAGE}
-rustc: $(rustc --version)
-source date epoch: ${source_epoch}
-EOF
-if [[ $release_mode == "native-libsepol" ]]; then
-    cat >>"$PACKAGE_ROOT/BUILD-INFO.txt" <<EOF
-libsepol source version: ${LIBSEPOL_VERSION}
-libsepol source SHA-256: ${LIBSEPOL_SHA256}
-cc: $(cc --version | sed -n '1p')
-EOF
-fi
-
-(
-    cd "$PACKAGE_ROOT"
-    find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum >SHA256SUMS
-)
 
 readonly ARTIFACT="${DIST_DIR}/${PACKAGE_NAME}.tar.gz"
 tar --sort=name --mtime="@${source_epoch}" --owner=0 --group=0 --numeric-owner \

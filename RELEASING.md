@@ -27,23 +27,17 @@ Crates.io publication remains disabled until the public library APIs stabilize.
    ```
 
    This must create
-   `dist/setools-rs-4.7.1-x86_64-linux-pure-rust-static.tar.gz` and its
-   checksum. Extract it into a fresh directory, run `sha256sum --check
-   SHA256SUMS`, and confirm `readelf -d bin/TOOL` has no `NEEDED` entry for all
-   six tools. Record the rustc, target, loader, and linkage from
-   `BUILD-INFO.txt` in the release notes.
-
-   A fresh checkout needs registry access for the script's initial
-   `cargo fetch --locked`: the corresponding-source bundle vendors every crate
-   in `Cargo.lock`, including build dependencies used only by the optional
-   native feature. `cargo vendor` itself is deliberately run offline after
-   that prefetch. The default artifact still does not download or link
-   libsepol.
+   `dist/setools-rs-4.7.1-linux-x86_64.tar.gz` and its
+   external `.sha256` file. Verify that checksum, extract the archive into a
+   fresh directory, and confirm its only regular files are the six executables
+   under `bin/`. Confirm `readelf -d bin/TOOL` has no `NEEDED` entry for each
+   tool.
 
    When a release needs the native compatibility flavor too, run the same
-   command with `--native-libsepol`. It retains the historic
-   `setools-rs-4.7.1-x86_64-linux-static.tar.gz` name and records its pinned
-   libsepol version and C compiler in `BUILD-INFO.txt`.
+   command with `--native-libsepol`. Its distinct archive name is
+   `setools-rs-4.7.1-linux-x86_64-native.tar.gz`. The pinned libsepol version,
+   source URL, and checksum remain recorded in the packaging script and ADR
+   0004 rather than being copied into the binary archive.
 4. On the benchmark host, run the default suite against the retained
    representative policy and archive the JSON with the release evidence:
 
@@ -82,7 +76,8 @@ Crates.io publication remains disabled until the public library APIs stabilize.
    that permission, enable Actions write access for this repository or provide
    an equivalent narrowly scoped release credential before pushing the tag.
 
-6. Create a source archive directly from the tag:
+6. GitHub automatically exposes source archives for the release tag. For an
+   independently generated source archive, run:
 
    ```bash
    git archive --format=tar.gz --prefix=setools-rs-4.7.1/ \
@@ -91,11 +86,10 @@ Crates.io publication remains disabled until the public library APIs stabilize.
    ```
 
 7. Check the automated GitHub Release and its uploaded pure Rust archive. The
-   packaging script already includes `README.md`, `COPYING`, both license texts,
-   man pages, Bash/Zsh/Fish completions, and the setools-rs corresponding source
-   with locked Cargo dependencies vendored for offline rebuilds. A native
-   compatibility archive additionally includes the exact libsepol source. Do
-   not label untested architectures or platforms as supported.
+   binary archive must contain only the six files under `bin/`; use the tagged
+   repository or GitHub's generated source archives for `README.md`, licenses,
+   man pages, completions, and source. Do not label untested architectures or
+   platforms as supported.
 
 The static artifact is intentionally separate from the default dynamic source
 build. Updating `LIBSEPOL_VERSION` or `LIBSEPOL_SHA256` requires a source,

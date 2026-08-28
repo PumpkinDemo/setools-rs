@@ -1,6 +1,6 @@
 # SETools Rust 重写进度
 
-最后更新：2026-08-28（Asia/Shanghai）
+最后更新：2026-08-29（Asia/Shanghai）
 
 当前阶段：首个 x86_64 Linux portable 版本已可发布；纯 Rust binary-policy parser
 已完成 header、全部 symbol family、TE/conditional、RBAC、filename-transition 与
@@ -170,19 +170,22 @@ CLI 兼容目标：SETools 4.7.1
 - [x] `scripts/build-portable-release.sh --native-libsepol` 固定 libsepol 3.11 官方
   source URL/SHA-256，构建 x86_64 GNU/Linux static PIE，并拒绝任何含 ELF `NEEDED` 的
   产物。
-- [x] native portable archive 包含六个 stripped binary、README、license、man/completion、
-  build info、per-file checksum、libsepol 原始 tarball，以及带 locked vendored Cargo
-  dependencies 的 setools-rs corresponding source。
-- [x] 15 MiB archive 已在全新目录解包：外层 checksum、包内全部 39 个文件、六个
+- [x] 初版 native portable archive 曾包含六个 stripped binary、README、license、
+  man/completion、build info、per-file checksum、libsepol 原始 tarball，以及带 locked
+  vendored Cargo dependencies 的 setools-rs corresponding source。
+- [x] 该初版 15 MiB archive 已在全新目录解包：外层 checksum、包内全部 39 个文件、六个
   `--version`、六个 ELF linkage 检查全部通过；`seinfo`/`sesearch` 成功加载当前
   1.9 MiB policy。相同 archive 也在禁网、read-only Debian trixie container 中成功
   用 `seinfo` 加载该 policy。
 - [x] ADR 0004 记录 dynamic/static 模式、支持范围、license/source 与 C parser 风险。
 - [x] `scripts/build-portable-release.sh` 默认输出
-  `setools-rs-4.7.1-x86_64-linux-pure-rust-static.tar.gz`：不检查、下载、编译或链接
-  libsepol，仍要求六个 binary 均为无 ELF `NEEDED` 的 static PIE。2026-08-28 使用当前
-  1.9 MiB policy 完成 smoke test；`--native-libsepol` 保留原 static native archive
-  与其对应 libsepol source。
+  `setools-rs-4.7.1-linux-x86_64.tar.gz`：不检查、下载、编译或链接
+  libsepol，仍要求六个 binary 均为无 ELF `NEEDED` 的 static PIE。2026-08-29 使用当前
+  1.9 MiB policy 完成 binary-only smoke test；12 MiB archive 的普通文件数精确为 6，
+  checksum 为 `b3740d08df3470058c0038bf2a589d743dfe06124d10715f7fbd3a57ad145035`。
+  当前 pure/native binary archive 都只包含 `bin/` 下六个 stripped executable，外部
+  `.sha256` 单独发布。`--native-libsepol` 保留原 static native compatibility build，
+  libsepol source URL/version/digest 继续固定在 release script 中。
 - [x] `.github/workflows/release.yml` 在 `v*` tag push 时自动运行：先于 Fedora
   container 完整验证 workspace，再在 x86_64 Ubuntu 构建/smoke-test default pure Rust
   archive、检查 checksum，并以只授予 `contents: write` 的 `GITHUB_TOKEN` 创建或更新
@@ -193,10 +196,12 @@ CLI 兼容目标：SETools 4.7.1
   workflow、或 release 只显示 GitHub 自动生成的 source archives，可在 Actions 页面指定
   既有 `v*` tag 手动补跑；它 checkout 该 tag、再次验证 version，并以 `--clobber` 补上
   binary archive 与 checksum，而不新建第二个 release。
-- [x] release script 在 build 前执行 `cargo fetch --locked`。pure Rust build 本身不会
-  编译 optional native crate 的 `cc` build-dependency，但 corresponding-source bundle 的
-  `cargo vendor --offline` 必须覆盖完整 lockfile；这一预取使 fresh GitHub runner 也能在
-  后续离线 vendor 阶段成功。
+- [x] binary-only archive 不再运行 `cargo fetch`/`cargo vendor`，fresh GitHub runner 只需
+  下载实际 pure Rust build 使用的依赖；optional native build dependency 与源码不会被
+  无意义地复制进默认 release 包。
+- [x] 默认 archive、外部 checksum、CI artifact 与 GitHub Release asset 统一使用简短名称
+  `setools-rs-4.7.1-linux-x86_64.tar.gz`；可选 native compatibility archive 使用不会覆盖
+  默认包的 `setools-rs-4.7.1-linux-x86_64-native.tar.gz`。
 
 ## 后续里程碑
 
@@ -350,8 +355,8 @@ complete owned reconstruction 的整个 load lifecycle，默认 CLI 已接入 pu
   不受该 matrix 约束。
 - [~] 7 个默认场景的性能和峰值内存基线已记录；manual `sediff-full` 尚未完成。
 - [ ] library API 稳定后决定 crates.io publication。
-- [x] x86_64 Linux portable archive 包含 license、man/completion、dependency/build info、
-  checksums 与 corresponding source，且六个 binary 均无 ELF `NEEDED`。
+- [x] x86_64 Linux portable archive 只包含 `bin/` 下六个 stripped binary，且均无 ELF
+  `NEEDED`；archive 的 `.sha256` 单独发布，license、文档与 source 由 release tag 提供。
 
 ## 更新规则
 

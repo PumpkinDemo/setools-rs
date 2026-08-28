@@ -101,8 +101,9 @@ CLI 兼容目标是 SETools 4.7.1。新格式或 API 只能作为附加能力引
 - x86_64 Linux portable release 默认构建 pure Rust static PIE：
   `scripts/build-portable-release.sh` 不检查、下载、编译或链接 libsepol，并拒绝任何 ELF
   `NEEDED`。`--native-libsepol` 是保留的 static compatibility flavor；它固定并校验
-  libsepol 3.11，随包带对应 source。两种 archive 都包含六个 binary、license、
-  man/completion、校验清单和 setools-rs corresponding source。ADR 0004 记录边界。
+  libsepol 3.11。两种 archive 都只包含 `bin/` 下六个 stripped binary；外部 `.sha256`
+  与 archive 一同发布，license、文档、man/completion 和 source 由 tagged repository 与
+  GitHub generated source archive 提供。ADR 0004 记录边界。
 - GitHub tag release 自动化位于 `.github/workflows/release.yml`：push 与 Cargo package
   version 精确对应的 `v*` tag 后，workflow 先在 Fedora 完整验证 workspace，再构建默认
   pure Rust static archive 并创建/更新同名 GitHub Release；只为 publish job 授予

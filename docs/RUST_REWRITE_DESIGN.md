@@ -265,7 +265,9 @@ This keeps the native policy read-only and reduces ownership hazards.
 - A static-prefix mode builds the portable artifact with pinned libsepol 3.11;
   it does not replace the pure Rust parser when C-free parsing is required.
 - Release automation rejects portable ELF files with any dynamic `NEEDED`
-  library and includes corresponding setools-rs and libsepol source.
+  library. Binary archives contain only the six executables; the release tag
+  supplies project source, while native source coordinates remain pinned for
+  separate corresponding-source publication when needed.
 
 ## 7. Policy model
 
@@ -763,11 +765,13 @@ models and identical tool results under both backends.
 - Project CI covers supported libsepol versions; release qualification also
   records results from the separately maintained differential harness.
 - C bridge sanitizer jobs pass.
-- Release artifacts include licenses, man pages, and dependency documentation.
-- The default x86_64 Linux portable archive contains pure Rust static PIE
-  binaries with no ELF `NEEDED` entries and includes corresponding source for
-  rebuilding. The optional native archive also includes libsepol source for
-  rebuilding/relinking that compatibility flavor.
+- The tagged repository includes licenses, man pages, completions, and
+  dependency documentation.
+- The default x86_64 Linux portable archive contains only the six pure Rust
+  static PIE binaries under `bin/`, all with no ELF `NEEDED` entries, plus an
+  externally published archive checksum. GitHub's generated tag archives
+  provide the project source; native corresponding source is published
+  separately if that optional compatibility flavor is distributed.
 - Performance and peak memory are measured against the recorded Python
   baseline, with material regressions documented before release.
 

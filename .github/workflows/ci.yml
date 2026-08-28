@@ -69,10 +69,10 @@ jobs:
       - name: Verify archive checksum
         run: >-
           cd dist && sha256sum --check
-          setools-rs-4.7.1-x86_64-linux-pure-rust-static.tar.gz.sha256
+          setools-rs-4.7.1-linux-x86_64.tar.gz.sha256
 
       - uses: actions/upload-artifact@v4
         with:
-          name: setools-rs-4.7.1-x86_64-linux-pure-rust-static
-          path: dist/setools-rs-4.7.1-x86_64-linux-pure-rust-static.tar.gz*
+          name: setools-rs-4.7.1-linux-x86_64
+          path: dist/setools-rs-4.7.1-linux-x86_64.tar.gz*
           if-no-files-found: error

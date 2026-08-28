@@ -163,26 +163,22 @@ binaries against a policy during packaging:
 scripts/build-portable-release.sh --policy /path/to/policy
 ```
 
-On a fresh checkout, the script first downloads the complete locked Cargo
-dependency set so that the corresponding-source bundle can vendor every locked
-crate offline. This includes build dependencies of the optional native
-compatibility feature, but does not download or link libsepol for the default
-pure Rust artifact.
-
 The optional static native compatibility artifact remains available for direct
 loader comparison. It downloads the official libsepol 3.11 source only when it
-is not cached, verifies its pinned SHA-256, and includes that corresponding
-source archive:
+is not cached and verifies its pinned SHA-256 before building:
 
 ```bash
 scripts/build-portable-release.sh --native-libsepol --policy /path/to/policy
 ```
 
-The archive and checksum are written to `dist/`. It includes licenses, man
-pages, shell completions, per-file hashes, and corresponding setools-rs source;
-the source archive vendors the locked Cargo dependencies for offline rebuilds.
-The native compatibility archive additionally includes the exact libsepol
-source. See [the release guide](RELEASING.md) and [third-party notice](THIRD_PARTY.md).
+The archive and its external checksum are written to `dist/` as
+`setools-rs-4.7.1-linux-x86_64.tar.gz` and `.sha256`. The archive is a small
+binary-only package containing exactly `sesearch`, `seinfo`, `sediff`, `sedta`,
+`seinfoflow`, and `sechecker` under `bin/`. Documentation, licenses, man pages,
+completions, and rebuildable source remain in the tagged repository and
+GitHub's generated source archives instead of being duplicated in the binary
+package. See [the release guide](RELEASING.md) and
+[third-party notice](THIRD_PARTY.md).
 
 Pushing a tag whose name exactly matches the package version, such as
 `v4.7.1`, starts the GitHub Actions release workflow. It runs the full Fedora
