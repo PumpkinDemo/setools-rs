@@ -104,6 +104,11 @@ CLI 兼容目标是 SETools 4.7.1。新格式或 API 只能作为附加能力引
   libsepol 3.11。两种 archive 都只包含 `bin/` 下六个 stripped binary；外部 `.sha256`
   与 archive 一同发布，license、文档、man/completion 和 source 由 tagged repository 与
   GitHub generated source archive 提供。ADR 0004 记录边界。
+- macOS pure Rust release 使用 `scripts/build-macos-release.sh` 在 native runner 构建；
+  支持 `macos-15-intel` 的 x86_64 与 `macos-15` 的 arm64。脚本检查 Mach-O architecture、
+  只允许 Apple system-library dependency，并在 strip 后执行和验证 ad-hoc codesign。
+  产物分别为 `setools-rs-4.7.1-macos-x86_64.tar.gz` 与
+  `setools-rs-4.7.1-macos-arm64.tar.gz`，同样只含六个 binary。
 - GitHub tag release 自动化位于 `.github/workflows/release.yml`：push 与 Cargo package
   version 精确对应的 `v*` tag 后，workflow 先在 Fedora 完整验证 workspace，再构建默认
   pure Rust static archive 并创建/更新同名 GitHub Release；只为 publish job 授予
@@ -153,6 +158,7 @@ python3 scripts/benchmark-cli.py --list
 cargo build --release -p setools-cli --bin sesearch --bin seinfo --bin sediff --bin sedta --bin seinfoflow --bin sechecker
 scripts/build-portable-release.sh --policy /path/to/policy
 scripts/build-portable-release.sh --native-libsepol --policy /path/to/policy
+scripts/build-macos-release.sh --policy /path/to/policy
 ```
 
 ## 不可破坏的设计约束

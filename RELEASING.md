@@ -1,9 +1,10 @@
 # Releasing
 
-The project currently supports standalone source releases and a portable
-x86_64 Linux pure Rust static archive for `sesearch`, `seinfo`, `sediff`,
-`sedta`, `seinfoflow`, and `sechecker`. A static native-libsepol compatibility
-archive is also available as an explicit secondary flavor.
+The project currently supports standalone source releases and pure Rust binary
+archives for Linux x86_64, macOS x86_64, and macOS arm64. Every archive contains
+`sesearch`, `seinfo`, `sediff`, `sedta`, `seinfoflow`, and `sechecker`. A static
+native-libsepol Linux compatibility archive is also available as an explicit
+secondary flavor.
 Crates.io publication remains disabled until the public library APIs stabilize.
 
 ## Release checklist
@@ -38,6 +39,18 @@ Crates.io publication remains disabled until the public library APIs stabilize.
    `setools-rs-4.7.1-linux-x86_64-native.tar.gz`. The pinned libsepol version,
    source URL, and checksum remain recorded in the packaging script and ADR
    0004 rather than being copied into the binary archive.
+
+   On native macOS x86_64 and arm64 hosts, respectively, run:
+
+   ```bash
+   scripts/build-macos-release.sh --policy /path/to/policy
+   ```
+
+   This must create `dist/setools-rs-4.7.1-macos-x86_64.tar.gz` or
+   `dist/setools-rs-4.7.1-macos-arm64.tar.gz` plus its external checksum. Confirm
+   the archive contains only six regular files, the Mach-O architecture matches
+   the filename, `codesign --verify --strict` succeeds, and `otool -L` lists no
+   non-system dependency.
 4. On the benchmark host, run the default suite against the retained
    representative policy and archive the JSON with the release evidence:
 
@@ -58,18 +71,18 @@ Crates.io publication remains disabled until the public library APIs stabilize.
    ```
 
    Pushing the `v4.7.1` tag starts `.github/workflows/release.yml`. It first
-   runs the same full Fedora workspace verification as CI, then builds the
-   pure Rust static archive on x86_64 Linux and creates or updates GitHub
-   Release `v4.7.1`. The workflow checks that the tag exactly matches the
-   Cargo workspace version before it can publish, and uploads both the archive
-   and its `.sha256` file. Re-running the same tag workflow replaces those two
-   assets rather than creating a second release.
+   runs the same full Fedora workspace verification as CI, then builds Linux
+   x86_64 on `ubuntu-latest`, macOS x86_64 on `macos-15-intel`, and macOS arm64
+   on `macos-15`. The workflow checks that the tag exactly matches the Cargo
+   workspace version and publishes only after every matrix entry succeeds. It
+   uploads all three archives and their three `.sha256` files. Re-running the
+   same tag replaces those six assets rather than creating a second release.
 
    If the tag was pushed before this workflow existed, or a release currently
    shows only GitHub's generated source archives, use **Actions → Release → Run
    workflow**, enter the existing tag, and run it manually. It checks out that
-   tag, verifies its version, then uploads or replaces the binary archive and
-   checksum on the existing release.
+   tag, verifies its version, then uploads or replaces all three binary archives
+   and checksums on the existing release.
 
    The release job grants only `contents: write` to its `GITHUB_TOKEN`, which
    is required to create a GitHub Release. If an organization policy prevents
@@ -85,8 +98,8 @@ Crates.io publication remains disabled until the public library APIs stabilize.
    sha256sum setools-rs-4.7.1.tar.gz
    ```
 
-7. Check the automated GitHub Release and its uploaded pure Rust archive. The
-   binary archive must contain only the six files under `bin/`; use the tagged
+7. Check the automated GitHub Release and its three uploaded pure Rust archives.
+   Each binary archive must contain only the six files under `bin/`; use the tagged
    repository or GitHub's generated source archives for `README.md`, licenses,
    man pages, completions, and source. Do not label untested architectures or
    platforms as supported.

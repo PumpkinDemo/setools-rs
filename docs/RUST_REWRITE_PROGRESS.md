@@ -2,7 +2,7 @@
 
 最后更新：2026-08-29（Asia/Shanghai）
 
-当前阶段：首个 x86_64 Linux portable 版本已可发布；纯 Rust binary-policy parser
+当前阶段：Linux x86_64、macOS x86_64 与 macOS arm64 release pipeline 已实现；纯 Rust binary-policy parser
 已完成 header、全部 symbol family、TE/conditional、RBAC、filename-transition 与
 SELinux/Xen labeling、MLS range-transition、policy capability 和尾部 attribute map
 
@@ -17,6 +17,9 @@ CLI 兼容目标：SETools 4.7.1
 - 默认 x86_64 Linux portable archive 使用 pure Rust loader 构建 static PIE，目标系统无需
   安装 libsepol、libselinux、PCRE2、libgcc 或特定 glibc shared object；可选 native
   compatibility archive 仍固定 libsepol 3.11。
+- macOS x86_64/arm64 archive 使用 native GitHub runner 构建，验证 thin Mach-O
+  architecture、Apple system-only dynamic dependencies、ad-hoc code signature、版本与
+  binary policy smoke test。
 - `checkpolicy` 只用于编译 Rust integration-test 的 synthetic policy fixtures。
 - Cargo 使用标准 `target/` 输出目录。
 
@@ -187,11 +190,11 @@ CLI 兼容目标：SETools 4.7.1
   `.sha256` 单独发布。`--native-libsepol` 保留原 static native compatibility build，
   libsepol source URL/version/digest 继续固定在 release script 中。
 - [x] `.github/workflows/release.yml` 在 `v*` tag push 时自动运行：先于 Fedora
-  container 完整验证 workspace，再在 x86_64 Ubuntu 构建/smoke-test default pure Rust
-  archive、检查 checksum，并以只授予 `contents: write` 的 `GITHUB_TOKEN` 创建或更新
-  同名 GitHub Release。workflow 会拒绝与 Cargo package version 不一致的 tag；重跑只会
-  覆盖 archive 与 `.sha256` 两个 asset。CI 的 portable artifact job 同步改为 pure Rust
-  archive name/path。
+  container 完整验证 workspace，再以 native runner matrix 构建/smoke-test Linux x86_64、
+  macOS x86_64 与 macOS arm64 default pure Rust archive。workflow 会拒绝与 Cargo package
+  version 不一致的 tag；三项全部通过后，仅 publish job 以 `contents: write` 创建或更新
+  同名 GitHub Release，并覆盖三个 archive 与三个 `.sha256` asset。CI 同样构建三平台
+  packaging artifact。
 - [x] release workflow 同时提供 `workflow_dispatch` 的必填 `tag` 输入。若 tag 早于
   workflow、或 release 只显示 GitHub 自动生成的 source archives，可在 Actions 页面指定
   既有 `v*` tag 手动补跑；它 checkout 该 tag、再次验证 version，并以 `--clobber` 补上
@@ -202,6 +205,11 @@ CLI 兼容目标：SETools 4.7.1
 - [x] 默认 archive、外部 checksum、CI artifact 与 GitHub Release asset 统一使用简短名称
   `setools-rs-4.7.1-linux-x86_64.tar.gz`；可选 native compatibility archive 使用不会覆盖
   默认包的 `setools-rs-4.7.1-linux-x86_64-native.tar.gz`。
+- [~] 已增加 `scripts/build-macos-release.sh` 与 CI/release native matrix：目标资产为
+  `setools-rs-4.7.1-macos-x86_64.tar.gz` 和 `setools-rs-4.7.1-macos-arm64.tar.gz`；脚本会
+  检查 Mach-O architecture、system-only dylib、ad-hoc signature、六个版本输出、policy
+  smoke 和 exact six-file archive。Linux 环境已完成脚本语法/workflow 静态检查，需由
+  GitHub macOS runner 完成首次实际构建后转为 `[x]`。
 
 ## 后续里程碑
 

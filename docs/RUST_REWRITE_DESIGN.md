@@ -268,6 +268,9 @@ This keeps the native policy read-only and reduces ownership hazards.
   library. Binary archives contain only the six executables; the release tag
   supplies project source, while native source coordinates remain pinned for
   separate corresponding-source publication when needed.
+- macOS release automation builds on native Intel and arm64 runners, verifies
+  the exact thin Mach-O architecture, rejects non-Apple dynamic dependencies,
+  and applies/verifies an ad-hoc signature after stripping.
 
 ## 7. Policy model
 
@@ -753,6 +756,9 @@ models and identical tool results under both backends.
   the default script builds a pure Rust x86_64 Linux static PIE without
   downloading, compiling, or linking libsepol. Retain the static native archive
   only behind `--native-libsepol` for direct compatibility comparison.
+- [Completed slice] Build pure Rust macOS x86_64 and arm64 archives on native
+  GitHub-hosted runners, with architecture/dependency/signature/version/policy
+  smoke checks before a three-platform release is published.
 
 ## 17. Definition of done for the first Rust release
 
@@ -772,6 +778,10 @@ models and identical tool results under both backends.
   externally published archive checksum. GitHub's generated tag archives
   provide the project source; native corresponding source is published
   separately if that optional compatibility flavor is distributed.
+- macOS x86_64 and arm64 archives contain the same six pure Rust binaries under
+  `bin/`; each is a native thin Mach-O with only Apple system dependencies and
+  a verified ad-hoc signature. Release publication waits for all three platform
+  archives and checksums.
 - Performance and peak memory are measured against the recorded Python
   baseline, with material regressions documented before release.
 

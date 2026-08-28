@@ -46,6 +46,19 @@ jobs:
           --bin sesearch --bin seinfo --bin sediff
           --bin sedta --bin seinfoflow --bin sechecker
 
+      - name: Compile cross-platform smoke-test policy
+        run: |
+          mkdir -p target/ci-smoke-policy
+          checkpolicy -M -U reject \
+            -o target/ci-smoke-policy/setools-test.policy \
+            crates/setools-sepol/tests/fixtures/te.conf
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ci-smoke-policy
+          path: target/ci-smoke-policy/setools-test.policy
+          if-no-files-found: error
+
   portable-release:
     runs-on: ubuntu-latest
 
@@ -75,4 +88,42 @@ jobs:
         with:
           name: setools-rs-4.7.1-linux-x86_64
           path: dist/setools-rs-4.7.1-linux-x86_64.tar.gz*
+          if-no-files-found: error
+
+  macos-release:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: x86_64
+          - runner: macos-15
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ci-smoke-policy
+          path: target/ci-smoke-policy
+
+      - name: Build and verify macOS archive
+        run: >-
+          scripts/build-macos-release.sh
+          --policy target/ci-smoke-policy/setools-test.policy
+
+      - name: Verify archive checksum
+        run: >-
+          cd dist && shasum -a 256 --check
+          setools-rs-4.7.1-macos-${{ matrix.arch }}.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: setools-rs-4.7.1-macos-${{ matrix.arch }}
+          path: dist/setools-rs-4.7.1-macos-${{ matrix.arch }}.tar.gz*
           if-no-files-found: error

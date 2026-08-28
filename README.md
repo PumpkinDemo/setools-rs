@@ -148,7 +148,7 @@ Build the native compatibility flavor for direct loader comparison:
 cargo build -p setools-cli --features native-libsepol --bin sesearch --bin seinfo --bin sediff --bin sedta --bin seinfoflow --bin sechecker
 ```
 
-Build the publishable x86_64 Linux pure Rust static archive:
+Build the publishable x86_64 Linux pure Rust static archive on Linux:
 
 ```bash
 scripts/build-portable-release.sh
@@ -180,15 +180,31 @@ GitHub's generated source archives instead of being duplicated in the binary
 package. See [the release guide](RELEASING.md) and
 [third-party notice](THIRD_PARTY.md).
 
+On native macOS x86_64 or arm64 hosts, build the matching pure Rust archive
+with:
+
+```bash
+scripts/build-macos-release.sh --policy /path/to/policy
+```
+
+This produces `setools-rs-4.7.1-macos-x86_64.tar.gz` or
+`setools-rs-4.7.1-macos-arm64.tar.gz`. The script checks the Mach-O
+architecture, permits only Apple system-library dependencies, applies and
+verifies an ad-hoc code signature after stripping, runs all six version checks,
+and optionally smoke-tests a supplied binary policy. Like the Linux archive,
+each macOS archive contains only the six executables under `bin/`.
+
 Pushing a tag whose name exactly matches the package version, such as
 `v4.7.1`, starts the GitHub Actions release workflow. It runs the full Fedora
-workspace verification, builds and smoke-tests the pure Rust portable archive
-on x86_64 Linux, checks its checksum, then creates or updates the matching
-GitHub Release with the archive and `.sha256` file. See
+workspace verification, then builds and smoke-tests Linux x86_64, macOS
+x86_64, and macOS arm64 archives on native GitHub-hosted runners. It creates or
+updates the matching GitHub Release only after all three archives and checksums
+pass. See
 [the release guide](RELEASING.md) for the tag command and repository setting.
 If a tag predates the workflow or a publish run needs retrying, open **Actions →
 Release → Run workflow**, enter that existing tag (for example `v4.7.1`), and
-the workflow will upload or replace the two binary assets on that release.
+the workflow will upload or replace all six binary archive/checksum assets on
+that release.
 
 Cargo uses its standard output layout:
 
@@ -348,8 +364,8 @@ build or test dependencies of this project.
 ## Publication state
 
 This repository can be cloned, built, tested, tagged, and released on its own.
-The x86_64 Linux pure Rust static archive is the first portable binary
-distribution. The internal crates currently set `publish = false`: crates.io
+Portable binary archives are published for Linux x86_64, macOS x86_64, and
+macOS arm64. The internal crates currently set `publish = false`: crates.io
 publication is deferred until the library APIs stabilize. See
 [RELEASING.md](RELEASING.md).
 

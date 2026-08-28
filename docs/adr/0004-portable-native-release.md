@@ -1,4 +1,4 @@
-# ADR 0004: libsepol-only native backend and portable Linux release
+# ADR 0004: libsepol-only native backend and portable binary releases
 
 - Status: Accepted
 - Date: 2026-08-27
@@ -47,6 +47,16 @@ smoke test. Its concise archive name is
 `setools-rs-<version>-linux-x86_64.tar.gz`; static linkage remains a verified
 property rather than part of the filename.
 
+Pure Rust macOS archives are built natively as
+`setools-rs-<version>-macos-x86_64.tar.gz` and
+`setools-rs-<version>-macos-arm64.tar.gz`. The release workflow fixes the Intel
+job to `macos-15-intel` and the arm64 job to `macos-15`, rather than relying on
+an architecture-changing `macos-latest` alias. Packaging verifies a thin
+Mach-O of the requested architecture, permits only `/usr/lib` and
+`/System/Library` dependencies, performs ad-hoc signing after stripping, and
+runs the same version and policy smoke tests as Linux. `MACOSX_DEPLOYMENT_TARGET`
+defaults to 11.0.
+
 `scripts/build-portable-release.sh --native-libsepol` retains the static native
 bridge artifact with a `linux-x86_64-native` suffix so it cannot overwrite the
 default `setools-rs-<version>-linux-x86_64` package. Only this mode downloads
@@ -73,5 +83,8 @@ and published separately when that flavor is distributed.
   use DNS or account-service lookups. The artifact is still limited to the
   tested x86_64 Linux target; other architectures need their own builds and
   verification.
+- macOS archives use Apple system dynamic libraries and ad-hoc signatures; they
+  are not Developer ID signed or notarized. The release workflow verifies
+  executability on the native architecture before publication.
 - Graphviz `dot` remains an optional external executable for PNG output. It is
   not a linked runtime library.
