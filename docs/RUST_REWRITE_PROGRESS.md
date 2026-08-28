@@ -1,9 +1,10 @@
 # SETools Rust 重写进度
 
-最后更新：2026-08-27（Asia/Shanghai）
+最后更新：2026-08-28（Asia/Shanghai）
 
 当前阶段：首个 x86_64 Linux portable 版本已可发布；纯 Rust binary-policy parser
-已开始 metadata 垂直切片
+已完成 header、全部 symbol family、TE/conditional、RBAC、filename-transition 与
+SELinux/Xen labeling、MLS range-transition、policy capability 和尾部 attribute map
 
 CLI 兼容目标：SETools 4.7.1
 
@@ -11,10 +12,11 @@ CLI 兼容目标：SETools 4.7.1
 
 - 本仓库独立构建、测试和发布。
 - 实现不依赖 legacy SETools Python/Cython 源码或运行环境。
-- 默认 source build 的 native 依赖仅为 libsepol 及编译 C bridge 所需的 C toolchain；
-  不依赖 libselinux/PCRE2。
-- x86_64 Linux portable archive 使用固定 libsepol 3.11 构建 static PIE，目标系统无需
-  安装 libsepol、libselinux、PCRE2、libgcc 或特定 glibc shared object。
+- 默认 source build 是纯 Rust，不依赖 libsepol、libselinux、PCRE2、C toolchain 或
+  `pkg-config`；`native-libsepol` feature 仅用于 compatibility comparison。
+- 默认 x86_64 Linux portable archive 使用 pure Rust loader 构建 static PIE，目标系统无需
+  安装 libsepol、libselinux、PCRE2、libgcc 或特定 glibc shared object；可选 native
+  compatibility archive 仍固定 libsepol 3.11。
 - `checkpolicy` 只用于编译 Rust integration-test 的 synthetic policy fixtures。
 - Cargo 使用标准 `target/` 输出目录。
 
@@ -165,9 +167,10 @@ CLI 兼容目标：SETools 4.7.1
   只剩 libsepol；PCRE2 不再进入传递依赖。
 - [x] `SETOOLS_LIBSEPOL_STATIC_ROOT` 支持显式 static libsepol prefix，同时保留发行版友好
   的 pkg-config dynamic source build。
-- [x] `scripts/build-portable-release.sh` 固定 libsepol 3.11 官方 source URL/SHA-256，
-  构建 x86_64 GNU/Linux static PIE，并拒绝任何含 ELF `NEEDED` 的产物。
-- [x] portable archive 包含六个 stripped binary、README、license、man/completion、
+- [x] `scripts/build-portable-release.sh --native-libsepol` 固定 libsepol 3.11 官方
+  source URL/SHA-256，构建 x86_64 GNU/Linux static PIE，并拒绝任何含 ELF `NEEDED` 的
+  产物。
+- [x] native portable archive 包含六个 stripped binary、README、license、man/completion、
   build info、per-file checksum、libsepol 原始 tarball，以及带 locked vendored Cargo
   dependencies 的 setools-rs corresponding source。
 - [x] 15 MiB archive 已在全新目录解包：外层 checksum、包内全部 39 个文件、六个
@@ -175,6 +178,11 @@ CLI 兼容目标：SETools 4.7.1
   1.9 MiB policy。相同 archive 也在禁网、read-only Debian trixie container 中成功
   用 `seinfo` 加载该 policy。
 - [x] ADR 0004 记录 dynamic/static 模式、支持范围、license/source 与 C parser 风险。
+- [x] `scripts/build-portable-release.sh` 默认输出
+  `setools-rs-4.7.1-x86_64-linux-pure-rust-static.tar.gz`：不检查、下载、编译或链接
+  libsepol，仍要求六个 binary 均为无 ELF `NEEDED` 的 static PIE。2026-08-28 使用当前
+  1.9 MiB policy 完成 smoke test；`--native-libsepol` 保留原 static native archive
+  与其对应 libsepol source。
 
 ## 后续里程碑
 
@@ -182,8 +190,51 @@ CLI 兼容目标：SETools 4.7.1
 - [x] M5：`sedta` 与 `seinfoflow` graph analysis。
 - [~] M6：六个 CLI 的兼容范围、command-specific JSON v1、completion 和 man page
   均已完成；仅余 Python binding、MCP、GUI 的后续集成边界决策。
-- [~] M7：独立 `setools-policy-binary` 已实现零 FFI/unsafe 的 bounded metadata parser；
-  完整 symbol/rule/context model、fuzzing 和 CLI cutover 尚未完成。
+- [x] M7：独立 `setools-policy-binary` 已实现零 FFI/unsafe 的 bounded parser：精确
+  校验 SELinux/Xen version compatibility table，解析并验证前置 ebitmap、common
+  permission、object-class、role、type、user、Boolean、sensitivity 与 category 全部 symbol
+  family；覆盖 inherited/local permission、
+  constraint/validatetrans postfix、v29+ type set、versioned defaults、role bitmap/bounds、
+  type/attribute/alias/permissive/typebounds、user bounds/MLS range、MLS alias/category set，
+  以及 v20..=23 implicit attribute gap。AVTAB/conditional rule body 已覆盖 v15..=19
+  merged record、v20+ compact record、standard/type/xperm rule、Boolean postfix 与
+  true/false branch。RBAC 与 filename transition 已覆盖 v15..=25 隐式 class、v26+
+  显式 class、v25..=32 expanded record 和 v33+ compressed bitmap。共享 security
+  context、全部 SELinux/Xen object-context family、genfs table、MLS range transition、
+  前置 policy-capability bitmap 与每一行尾部 `type_attr_map` 已覆盖。named attribute
+  concrete expansion 与 libsepol 一致，v20..=23 unnamed attribute gap membership 也会
+  保留；`PureRustPolicyLoader` 已将 parser-owned representation 重建为完整 immutable
+  `Policy`。产品 SELinux/Xen、filename、RBAC、MLS fixture 与当前真实 policy 的 full
+  owned snapshot 均和 libsepol 语义一致，真实 policy 精确消费至 EOF。严格 EOF/oversize
+  拒绝、truncation/bit-mutation property test 和独立 cargo-fuzz target 已完成。parser
+  retained allocation 与完整 `Policy` reconstruction 共用一个 conservative logical
+  budget，覆盖 model 容器、string、嵌套数据、B-tree name index 和 v20..=23 temporary
+  attribute expansion；serialized input 有独立 byte limit。`to_policy` 与
+  `PureRustPolicyLoader` 均会保留 typed `LimitExceeded` error。2026-08-28 使用六个
+  product/real-policy seed 完成一轮 60 秒 instrumented coverage run（5,838 inputs、279
+  new corpus entries、524 MiB peak RSS、无 parser error；当前 sandbox 不支持
+  LeakSanitizer，故仅该环境以 `detect_leaks=0` 运行）。native feature 下
+  `SETOOLS_POLICY_BACKEND` 可选 `libsepol`、`rust` 或 `pure-rust`；产品 integration test 对六个 binary
+  的 status/stdout/stderr 做双 backend byte-exact 比较。真实 1.9 MiB policy 的 selected
+  `sesearch`、`seinfo`、`sediff`、`sedta`、`seinfoflow` 成功 JSON 输出以及有效
+  `sechecker` config 的 exit status/JSON 也逐字节一致。`sedta` graph edge 已按 canonical
+  source/target name 排序，避免 backend-specific ID 改变输出顺序。M8 已将 pure-Rust
+  backend 设为 default，native bridge 保留为 opt-in feature。
+- [x] 受当前 managed runner 的单命令 wall-time/memory 限制，额外以真实 policy 的
+  256 KiB 前缀作为临时 seed，运行六个 `--sanitizer none`、各 `-runs=2000` 的 coverage
+  batch；六批均以 status 0 完成，未新增 `fuzz/artifacts/` 文件。临时 corpus 全部留在
+  `/tmp`，不进入发布仓库；完整 real-policy 的长期 address-sanitizer campaign 仍适合在
+  资源更充足的 CI/普通 shell 执行。
+- [x] M8：native-independent CLI build。`native-libsepol` 已成为 opt-in compatibility
+  feature，普通 `cargo build -p setools-cli --bins` 的 dependency graph 不含
+  `setools-sepol`/libsepol。pure build 提供 Rust-owned running-policy discovery/timestamp
+  helper，六个 binary 的 34 个 integration tests、24 个 lib tests、Clippy 与真实 policy
+  byte-exact comparison 均通过；显式 native feature 的 35 个 integration tests（含 dual
+  backend parity）与 Clippy 也通过。默认 loader 为 pure Rust。
+- [x] M8 release 收尾：默认 portable script 已与默认 loader 对齐，产物不含 native
+  bridge/libsepol；native static archive 只能由 `--native-libsepol` 显式请求。2026-08-28
+  用当前 1.9 MiB policy 实际打包成功，archive checksum 为
+  `e5942f0b367a9d5954339f57c5ab9c8baa77867f2cd0c1c39ed1e28830d3bd20`（不纳入仓库）。
 
 ## 当前验证基线
 
@@ -195,18 +246,24 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p setools-xtask -- check
 cargo run -p setools-policy-binary --example policy-header -- /path/to/policy
+cargo run -p setools-policy-binary --example policy-prefix -- /path/to/policy
 python3 scripts/benchmark-cli.py --list
 cargo build --release -p setools-cli --bin sesearch --bin seinfo --bin sediff --bin sedta --bin seinfoflow --bin sechecker
 scripts/build-portable-release.sh --policy /path/to/policy
+scripts/build-portable-release.sh --native-libsepol --policy /path/to/policy
 ```
 
-最近一次实现验证：workspace 87 tests、Clippy `-D warnings`、release 六个 binary
+最近一次实现验证：默认 workspace 111 tests（另有 1 个显式 real-policy ignored test）、
+以及 `native-libsepol` feature 的 35 个 CLI integration tests（包含 dual-backend
+parity）均通过；
+Clippy `-D warnings`、release 六个 binary
 build、24 个 generated asset 的 byte-exact check、benchmark manifest list 和六份
 man1 `groff -man` check 均通过；六份 Fish completion 已生成，但当前机器没有 Fish
 runtime 可执行 syntax check。本次重新执行 44-case `sechecker`、64-case `sesearch`、
 37-case `seinfo`、64-case `sediff`、37-case `sedta` 和 55-case `seinfoflow` 全部 legacy
-差分矩阵，均通过。默认动态六 binary 只含 libsepol 和 GNU system runtime，不含
-libselinux/PCRE2；portable 六 binary 均无 ELF `NEEDED`。六个 normative JSON schema
+差分矩阵，均通过。默认动态六 binary 不含 libsepol、libselinux/PCRE2；native feature
+动态 binary 只含 libsepol 和 GNU system runtime；default pure-Rust 与 optional native
+portable 六 binary 均无 ELF `NEEDED`。六个 normative JSON schema
 均可由标准 JSON parser 读取；真实 1.9 MiB
 `policy` 的 `sechecker --json` init source exemption check 可解析并返回 1 个 passed
 check、0 failures。ASan/UBSan 在关闭 leak detection 后覆盖 bridge unit 与四个真实
@@ -218,17 +275,65 @@ policy load tests；LeakSanitizer 在当前 ptrace sandbox 中不可运行，仍
 为 12.8x 且 Rust peak RSS 约 224.4 MiB、legacy 约 714.1 MiB；`sediff-selected` 为
 0.84x，是默认场景中唯一较慢项。原始数据、硬件和哈希见 `docs/PERFORMANCE.md`。
 
-下一最小工作包：在纯 Rust parser 中实现 version/target compatibility table selection
-和第一个 symbol-table family，增加 count/allocation limits 与 libsepol snapshot 差分；
-在完整 owned model parity 前不接入 CLI。
+本次纯 Rust slice 验证：20 个 parser unit tests 覆盖 v15/v20/v23/v24/v30/v35 versioned layout、
+v20..=23 implicit attribute gap、继承/本地 permission、constraint postfix、named-type
+bitmap、role/type/user/Boolean/MLS、alias/bounds/permissive、default 与资源上限；产品
+自有 `seinfo.conf` 的 common、完整 `ObjectClass`、role、user、Boolean、sensitivity、
+category、`ConstraintRule` 和 `DefaultRule` owned model，以及 type 的主名/flavor/alias/
+permissive/bounds 均与 libsepol snapshot 相同。新增 AVTAB/conditional 单元覆盖旧/新
+布局、dontaudit 反码、type rule、ioctl xperm、postfix 和条件分支；产品 `seinfo.conf`
+及 filename fixture 的所有非 filename TE rule 与 conditional owned model 均逐条匹配
+libsepol，并覆盖 ioctl/nlmsg xperm。当前 1.9 MiB `policy`（version 30）可由纯 Rust
+prefix loader 读取其 TE/conditional 段至 byte offset 1654591，
+得到 5 个 common、107 个 class、4 个 role、4591 个 type/attribute 主值（4132 type、
+459 attribute）、1 个 type alias、1 个 permissive、1 个 user、0 个 Boolean、1 个
+sensitivity、1024 个 category、313 个声明 permission、89 个 constraint 和 0 个
+default；112585 个非 filename TE rule 与 libsepol owned model 的多重集完全一致。
+新增 RBAC/filename slice 后，产品 `rbac.conf` 的 26 条 RBAC rule、filename fixture 的
+RBAC/filename owned model 也完全一致，并覆盖旧格式首条生效重复规则、v15 隐式
+`process` class、v33+ 多 datum bitmap 的 disjoint/default 校验。当前真实 policy 的
+0 条 RBAC rule 与 94 条 v30 filename transition 均逐条匹配 libsepol，prefix 读取至
+byte offset 1657688。新增 context/labeling slice 后，共享 context 解码会校验 concrete
+type、user/role 与 direct/deferred-attribute role/type authorization、MLS dominance/
+category/user range；SELinux 九 family、
+Xen 五/六 family、v24/v30 IOMEM 宽度、IPv4/IPv6/InfiniBand network-order address、
+fs_use/protocol/range 及 genfs duplicate/class 均有 bounded 读取。产品 `seinfo.conf` 和
+`xen.conf` 的 supported labeling model 与 libsepol 完全相同；当前真实 policy 的
+1531 条 labeling rule 也逐条匹配。新增 tail slice 后，v21+ 显式 class 与 v19..=20
+隐式 `process` class 的 MLS range transition 均会做 type/class/range/duplicate validation；
+产品 `mls.conf` 的 38 条规则逐条匹配。policy capability bit 会验证并保留 canonical
+number，全部 `type_attr_map` row 会反建 concrete expansion，并最终确认 labeling context
+的 role/attribute authorization；产品 type expansion/policy capabilities 与 libsepol
+相同。当前真实 policy 含 4 个 policy capability、0 条 MLS range transition、10733 个
+named-symbol attribute membership，完整解析 1947827 bytes，恰好等于文件大小。
+
+完整 owned reconstruction 已实现：`BinaryPolicyPrefix::to_policy` 与
+`PureRustPolicyLoader` 会构造全部 type/class/role/Boolean/conditional、TE/RBAC/MLS rule
+及 `SeinfoData`。v20..=23 缺失的 attribute 主名会按 native 规则生成为
+`@ttr##########`，并从 containing membership 反建 concrete member。产品
+`seinfo.conf`、`filename-transition.conf`、`rbac.conf`、`mls.conf`、`xen.conf` 及当前
+1.9 MiB real policy 均通过 full-model differential comparison；native hash order
+不稳定的 rule/labeling collection 按多重集比较。
+
+完整 parser 现在拒绝 byte limit 以上的直接输入和 serialization 后的 trailing data；文件
+loader 会读取上限加 1 字节，可靠区分 exact-limit 与 oversized file。单元测试穷举完整
+synthetic policy 的每一个 truncation，并对每个 byte 的 8 个单 bit mutation 执行 bounded
+parse，成功解析的 mutation 继续构造 owned `Policy`。独立、非发布的 `fuzz/` workspace
+锁定 `libfuzzer-sys 0.4.13`，header/full parser/owned reconstruction target 已通过 stable
+build、Clippy 和 10000-run 非 coverage smoke；正式 coverage-guided campaign 已以六个
+seed 运行 60 秒，另有六个有限 2000-run prefix batch 均成功结束。allocation budget 已覆盖
+complete owned reconstruction 的整个 load lifecycle，默认 CLI 已接入 pure Rust loader。
+下一最小工作包是资源更充足环境中的 full-policy coverage run、full `sediff` 性能诊断或
+新的兼容差异。
 
 ## 发布未关闭项
 
 - [x] 六个 CLI 的 4.7.1 兼容范围已完成。
 - [x] 生成 shell completion。
 - [x] 生成 man page。
-- [~] portable artifact 固定并实测 libsepol 3.11，外层 pinned 3.9 完整测试仍保留；
-  product CI 的正式 3.9/latest/main matrix 尚未建立。
+- [~] optional native portable artifact 固定并实测 libsepol 3.11，外层 pinned 3.9 完整
+  测试仍保留；product CI 的正式 3.9/latest/main matrix 尚未建立。默认 pure Rust archive
+  不受该 matrix 约束。
 - [~] 7 个默认场景的性能和峰值内存基线已记录；manual `sediff-full` 尚未完成。
 - [ ] library API 稳定后决定 crates.io publication。
 - [x] x86_64 Linux portable archive 包含 license、man/completion、dependency/build info、

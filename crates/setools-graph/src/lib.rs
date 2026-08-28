@@ -165,8 +165,8 @@ type TransitionRuleMap<'policy> = BTreeMap<TypeId, BTreeMap<TypeId, RuleMap<'pol
 
 /// A complete, immutable domain-transition graph built from an owned policy.
 ///
-/// Edge order follows the policy rule snapshot, matching the legacy graph's
-/// breadth-first and path enumeration order while remaining deterministic.
+/// Edge order follows canonical source and target names so loader-specific
+/// policy-local identifiers cannot affect query or path enumeration.
 #[derive(Debug)]
 pub struct DomainTransitionGraph<'policy> {
     policy: &'policy Policy,
@@ -322,6 +322,16 @@ impl<'policy> DomainTransitionGraph<'policy> {
             }
         }
         edges.retain(|edge| !edge.transition.is_empty() || !edge.dyntransition.is_empty());
+        edges.sort_by(|left, right| {
+            (
+                type_name(policy, left.source),
+                type_name(policy, left.target),
+            )
+                .cmp(&(
+                    type_name(policy, right.source),
+                    type_name(policy, right.target),
+                ))
+        });
 
         Self {
             policy,

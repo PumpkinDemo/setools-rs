@@ -84,6 +84,7 @@ dependencies = [
  "setools-diff",
  "setools-graph",
  "setools-policy",
+ "setools-policy-binary",
  "setools-query",
  "setools-sepol",
 ]

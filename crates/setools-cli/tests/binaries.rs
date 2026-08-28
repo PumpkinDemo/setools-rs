@@ -58,6 +58,25 @@ impl Drop for CompiledPolicy {
     }
 }
 
+#[cfg(feature = "native-libsepol")]
+fn assert_cli_backend_parity(binary: &str, arguments: &[&str], paths: &[&Path]) {
+    let native = Command::new(binary)
+        .args(arguments)
+        .args(paths)
+        .output()
+        .expect("libsepol backend command should execute");
+    let pure_rust = Command::new(binary)
+        .env("SETOOLS_POLICY_BACKEND", "pure-rust")
+        .args(arguments)
+        .args(paths)
+        .output()
+        .expect("pure Rust backend command should execute");
+
+    assert_eq!(pure_rust.status, native.status, "{binary} exit status");
+    assert_eq!(pure_rust.stdout, native.stdout, "{binary} stdout");
+    assert_eq!(pure_rust.stderr, native.stderr, "{binary} stderr");
+}
+
 #[test]
 fn every_binary_reports_compatibility_version() {
     let binaries = [
@@ -79,6 +98,60 @@ fn every_binary_reports_compatibility_version() {
         assert_eq!(output.stdout, b"4.7.1\n", "unexpected {name} stdout");
         assert!(output.stderr.is_empty(), "unexpected {name} stderr");
     }
+}
+
+#[test]
+#[cfg(feature = "native-libsepol")]
+fn pure_rust_loader_matches_libsepol_at_the_cli_boundary() {
+    let te = CompiledPolicy::build_fixture("te.conf", None);
+    assert_cli_backend_parity(
+        env!("CARGO_BIN_EXE_sesearch"),
+        &["--json", "--allow"],
+        &[&te.0],
+    );
+
+    let seinfo = CompiledPolicy::build_fixture("seinfo.conf", None);
+    assert_cli_backend_parity(env!("CARGO_BIN_EXE_seinfo"), &["--json"], &[&seinfo.0]);
+
+    let left = CompiledPolicy::build_fixture("diff-simple-left.conf", None);
+    let right = CompiledPolicy::build_fixture("diff-simple-right.conf", None);
+    assert_cli_backend_parity(
+        env!("CARGO_BIN_EXE_sediff"),
+        &["--json", "--stats", "--type"],
+        &[&left.0, &right.0],
+    );
+
+    let dta = CompiledPolicy::build_fixture("dta.conf", None);
+    assert_cli_backend_parity(
+        env!("CARGO_BIN_EXE_sedta"),
+        &["--json", "--source", "alpha", "--stats", "--policy"],
+        &[&dta.0],
+    );
+
+    let infoflow = CompiledPolicy::build_fixture("infoflow.conf", None);
+    let permission_map =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../setools-graph/tests/fixtures/perm_map");
+    assert_cli_backend_parity(
+        env!("CARGO_BIN_EXE_seinfoflow"),
+        &[
+            "--json",
+            "--source",
+            "flow_source",
+            "--stats",
+            "--policy",
+            "--map",
+        ],
+        &[&infoflow.0, &permission_map],
+    );
+
+    let checker = CompiledPolicy::build_fixture("checker.conf", None);
+    let config =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../setools-checker/tests/fixtures/pass.ini");
+    assert_cli_backend_parity(
+        env!("CARGO_BIN_EXE_sechecker"),
+        &["--json"],
+        &[&config, &checker.0],
+    );
 }
 
 #[test]

@@ -61,7 +61,7 @@ policy.N or the running policy
      +--------+--------+
      |                 |
 libsepol C bridge   pure Rust parser
- (current loader)   (metadata slice)
+(opt-in comparator) (default loader)
      |                 |
      +--------+--------+
               v
@@ -679,13 +679,78 @@ fixtures.
 
 - [Completed slice] Parse bounded SELinux/Xen kernel-policy metadata for
   versions 15 through 35 behind a separate loader.
-- Decode compatibility tables, symbols, rules, constraints, and contexts.
-- Differentially compare full snapshots with libsepol.
-- Add parser-specific fuzzing and allocation limits.
-- Make the backend selectable until parity is demonstrated.
+- [Completed slice] Select and validate exact target/version compatibility
+  table sizes, decode leading bitmaps and the common-permission symbol family,
+  and enforce serialized-byte, count, string, and total-allocation limits.
+- [Completed slice] Decode object classes, inherited and local permissions,
+  postfix constraint/validatetrans records, version 29+ type-name sets, and
+  versioned object defaults; differentially reconstruct the existing class,
+  constraint, and default owned models.
+- [Completed slice] Decode roles and primary types/attributes, including
+  dominance/authorized-type bitmaps, bounds, aliases, permissive types, and
+  version 20 through 23 implicit attribute gaps; differentially compare the
+  role model and locally available type fields.
+- [Completed slice] Decode users, Booleans, sensitivities, and categories,
+  including versioned user bounds, expanded MLS levels/ranges, default Boolean
+  state, aliases, and sensitivity category sets; differentially reconstruct all
+  corresponding owned fields.
+- [Completed slice] Decode the unconditional AVTAB and Boolean conditional
+  rule lists, including version 15 through 19 merged records, version 20+
+  compact records, standard/type/xperm rules, postfix expressions, and branch
+  ownership; differentially reconstruct the existing conditional and TE-rule
+  owned fields.
+- [Completed slice] Decode role-transition and role-allow lists plus version
+  25 through 32 expanded and version 33+ compressed filename transitions;
+  differentially reconstruct the existing RBAC and filename-rule owned fields.
+- [Completed slice] Decode shared security contexts, every versioned
+  SELinux/Xen object-context family, and the trailing genfs table; validate
+  object ranges, protocols, context references/MLS authorization, duplicate
+  genfs keys, and allocation limits, then differentially reconstruct the
+  supported labeling model for product SELinux/Xen fixtures and a real policy.
+- [Completed slice] Decode MLS range transitions, retain and validate leading
+  policy capabilities, read every trailing `type_attr_map`, reconstruct named
+  attribute concrete expansion, preserve version 20 through 23 unnamed
+  membership, and finalize role/context authorization; verify exact EOF on a
+  real policy and differential parity for the supported owned fields.
+- [Completed slice] Reconstruct the complete shared immutable `Policy` through
+  a pure Rust `PolicyLoader`; differentially compare full product SELinux/Xen,
+  filename, RBAC, and MLS fixtures plus a real policy with libsepol.
+- [Completed slice] Add strict EOF/oversize rejection, exhaustive truncation
+  and deterministic bit-mutation tests, plus a separate parser/owned-model
+  libFuzzer target.
+- [Completed slice] Share one conservative logical allocation budget across
+  parser retention and complete owned-model reconstruction. The reconstruction
+  charge includes model containers, strings, nested values, B-tree name
+  indexes, and temporary version 20 through 23 attribute expansion; input
+  bytes remain separately capped. Exhaustive truncation/mutation tests and a
+  recorded 60-second instrumented coverage run against six product/real-policy
+  seeds complete without a parser error.
+- [Completed slice] Make the backend selectable with
+  `SETOOLS_POLICY_BACKEND=libsepol|rust|pure-rust`, with `libsepol` available
+  only when its opt-in feature is compiled and pure Rust as the default. A
+  product integration test compares status/stdout/stderr for
+  all six binaries under both backends; selected current-policy commands also
+  match byte for byte. Domain-transition edges use canonical source/target
+  names so policy-local IDs cannot change output order between loaders.
 
 Exit criterion: selected real and fixture policies produce equivalent owned
 models and identical tool results under both backends.
+
+### M8: Native-independent CLI build
+
+- [Completed slice] Make the libsepol bridge the opt-in `native-libsepol`
+  compatibility feature. The default CLI dependency graph contains only Rust
+  crates and the pure Rust loader.
+- [Completed slice] Provide Rust-owned running-policy discovery and timestamp
+  helpers for the pure build. Its existing broken-pipe path exits successfully
+  without native setup.
+- [Completed slice] Build and test the six binaries with only the pure Rust
+  loader selected. Keep the native backend available behind its explicit
+  feature for differential comparison.
+- [Completed slice] Align portable release packaging with the default loader:
+  the default script builds a pure Rust x86_64 Linux static PIE without
+  downloading, compiling, or linking libsepol. Retain the static native archive
+  only behind `--native-libsepol` for direct compatibility comparison.
 
 ## 17. Definition of done for the first Rust release
 
@@ -699,8 +764,10 @@ models and identical tool results under both backends.
   records results from the separately maintained differential harness.
 - C bridge sanitizer jobs pass.
 - Release artifacts include licenses, man pages, and dependency documentation.
-- The x86_64 Linux portable archive contains static PIE binaries with no ELF
-  `NEEDED` entries and includes corresponding source for rebuilding/relinking.
+- The default x86_64 Linux portable archive contains pure Rust static PIE
+  binaries with no ELF `NEEDED` entries and includes corresponding source for
+  rebuilding. The optional native archive also includes libsepol source for
+  rebuilding/relinking that compatibility flavor.
 - Performance and peak memory are measured against the recorded Python
   baseline, with material regressions documented before release.
 

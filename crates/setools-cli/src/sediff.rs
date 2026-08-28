@@ -1,12 +1,14 @@
 //! `sediff` argument parsing and compatibility rendering.
 
-use crate::json;
+use crate::{
+    json, policy_loader,
+    runtime::{local_log_timestamp, use_default_sigpipe},
+};
 use setools_diff::{
     CompatibilityDifference, ComponentDifference, ModifiedAliases, ModifiedBoolean,
     ModifiedTypeAttribute, NameSetDifference, PolicyDiff, PropertyChange, PropertyValue,
 };
-use setools_policy::{ConstraintKind, HandleUnknown, Policy, PolicyLoader, TeRuleKind};
-use setools_sepol::{LibsepolLoader, LoadError, local_log_timestamp, use_default_sigpipe};
+use setools_policy::{ConstraintKind, HandleUnknown, Policy, TeRuleKind};
 use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::io::{self, Write as _};
@@ -1733,7 +1735,7 @@ fn load_policy(path: &Path, options: &Options) -> Result<Policy, String> {
         "setools.policyrep",
         &format!("Opening SELinux policy \"{}\"", path.display()),
     );
-    match LibsepolLoader.load(path) {
+    match policy_loader::load(path) {
         Ok(policy) => {
             log_policy_load_debug(options, &policy);
             log_message(
@@ -1744,7 +1746,7 @@ fn load_policy(path: &Path, options: &Options) -> Result<Policy, String> {
             );
             Ok(policy)
         }
-        Err(error) => Err(compat_load_error(path, &error)),
+        Err(error) => Err(policy_loader::format_error(path, &error)),
     }
 }
 
@@ -1808,14 +1810,6 @@ fn log_diff_resets(options: &Options) {
     ];
     for message in RESETS {
         log_message(options, "DEBUG", "setools.diff.difference", message);
-    }
-}
-
-fn compat_load_error(path: &Path, error: &LoadError) -> String {
-    if error.code() == 3 && !path.exists() {
-        format!("[Errno 2] No such file or directory: '{}'", path.display())
-    } else {
-        error.to_string()
     }
 }
 

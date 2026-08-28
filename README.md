@@ -5,9 +5,9 @@ policy analysis tools. Its CLI compatibility target and version identity are
 SETools 4.7.1.
 
 The project does not depend on the Python/Cython SETools implementation. A
-normal source build uses Rust and libsepol only; libselinux is not required.
-The published x86_64 Linux portable archive is a static PIE and needs none of
-those shared libraries on the target system.
+normal source build uses the pure Rust binary-policy loader and requires no
+libsepol, libselinux, C compiler, or `pkg-config`. The optional native
+compatibility loader remains available behind a Cargo feature.
 
 ## Status
 
@@ -57,42 +57,83 @@ disabled checks, output-file mode, verbose/debug diagnostics, and exit status.
 Its additive JSON mode provides typed check findings, evidence, disabled
 reasons, and summary counts.
 
-Pure Rust binary-policy parsing has started in the independent
-`setools-policy-binary` crate. The current bounded slice parses and validates
-SELinux/Xen kernel-policy metadata for versions 15 through 35 and is
-differentially tested against the libsepol loader. The CLIs intentionally keep
-using libsepol until the pure Rust loader can produce the complete owned model.
-Inspect that slice without any native loader using:
+Pure Rust binary-policy parsing is implemented in the independent
+`setools-policy-binary` crate. The bounded parser validates the exact
+SELinux/Xen version compatibility entry, decodes the leading bitmaps plus the
+common-permission, object-class, role, type, user, Boolean, sensitivity, and
+category symbol families, and applies explicit serialized-byte, count, string,
+and total-allocation limits. Object classes
+include inherited/local permissions, constraints, validation transitions, and
+defaults; roles/types include dominance and authorized-type bitmaps, bounds,
+type/attribute flavor, aliases, and permissive state. Users retain versioned
+bounds and MLS default levels/ranges; MLS symbols retain aliases and category
+sets. It now also decodes the unconditional AVTAB plus Boolean postfix
+conditionals and both rule branches, including the version 15–19 merged AVTAB
+layout, the version 20+ compact layout, standard/type rules, version 30+ xperm,
+and version 34+ conditional xperm. The resulting symbols, conditionals, and TE
+rule body are differentially tested against the libsepol owned model.
+The parser also decodes role transitions/allows and both the version 25–32
+expanded and version 33+ compressed filename-transition layouts. Security
+contexts, all versioned SELinux/Xen object-context families, the trailing
+genfs table, MLS range transitions, policy capabilities, and every
+`type_attr_map` row are decoded with reference, range, protocol, duplicate-key,
+membership, and allocation validation. Named attributes receive the same
+concrete type expansion as libsepol, including compatibility with unnamed
+attribute gaps in versions 20–23. Product SELinux/Xen/MLS fixtures and the
+current real policy match the supported libsepol-owned model, and the real
+policy is consumed through its exact final byte. `PureRustPolicyLoader` now
+reconstructs the complete immutable `Policy`; product SELinux/Xen, filename,
+RBAC, and MLS fixtures plus the current 1.9 MiB real policy pass full-model
+differential comparison with the libsepol loader. Its allocation limit covers
+the parser-owned representation and the complete reconstructed model under one
+conservative logical budget, including owned strings, nested collections, name
+indexes, and temporary compatibility expansion. Input bytes have a separate
+serialized-size cap. `policy-prefix` reports both the parser-retained charge
+and the estimated complete-load peak. The CLI supports `SETOOLS_POLICY_BACKEND`
+for loader-parity work. The default build uses pure Rust; `rust` and
+`pure-rust` select it explicitly. Build with `--features native-libsepol` to
+enable the optional `libsepol` backend. Product fixtures and the current 1.9
+MiB policy produce byte-identical selected CLI results under both loaders.
+Inspect the metadata or decoded prefix without any native loader using:
 
 ```bash
 cargo run -p setools-policy-binary --example policy-header -- /path/to/policy
+cargo run -p setools-policy-binary --example policy-prefix -- /path/to/policy
+```
+
+Parser unit tests include exhaustive truncation and deterministic one-bit
+mutation passes. The separate non-published cargo-fuzz workspace exercises
+header parsing, complete parsing, and owned reconstruction:
+
+```bash
+cargo +nightly fuzz run parse_policy
 ```
 
 ## Requirements
 
 - Rust 1.85 or newer
-- a C compiler
-- `pkg-config`
-- libsepol 3.9 or newer, including development headers
+- a C compiler, `pkg-config`, and libsepol 3.9 or newer only for the optional
+  `native-libsepol` feature or for building every workspace member
 - `checkpolicy` only when running integration tests
 - Graphviz `dot` only when using `sedta --output_file` or
   `seinfoflow --output_file`
 
-The normal generated binaries are dynamically linked to libsepol. The source
-build no longer links libselinux or its PCRE2 dependency.
+The normal generated binaries do not link libsepol. Builds using the optional
+`native-libsepol` feature dynamically link libsepol but never libselinux or
+PCRE2.
 
 ## Build
 
-Build the complete workspace:
-
-```bash
-cargo build --workspace
-```
-
-Build the implemented command binaries:
+Build the default pure Rust command binaries:
 
 ```bash
 cargo build -p setools-cli --bin sesearch --bin seinfo --bin sediff --bin sedta --bin seinfoflow --bin sechecker
+```
+
+Build every workspace member, including the optional native loader:
+
+```bash
+cargo build --workspace
 ```
 
 Build an optimized binary:
@@ -101,26 +142,41 @@ Build an optimized binary:
 cargo build --release -p setools-cli --bin sesearch --bin seinfo --bin sediff --bin sedta --bin seinfoflow --bin sechecker
 ```
 
-Build the publishable x86_64 Linux static archive:
+Build the native compatibility flavor for direct loader comparison:
+
+```bash
+cargo build -p setools-cli --features native-libsepol --bin sesearch --bin seinfo --bin sediff --bin sedta --bin seinfoflow --bin sechecker
+```
+
+Build the publishable x86_64 Linux pure Rust static archive:
 
 ```bash
 scripts/build-portable-release.sh
 ```
 
-The script downloads the official libsepol 3.11 source only when it is not
-cached, verifies its pinned SHA-256, statically links libsepol and the C/Rust
-runtime, and fails if any binary retains an ELF `NEEDED` entry. To additionally
-exercise the finished binaries against a policy during packaging:
+The default portable script builds the pure Rust loader. It does not download,
+compile, or link libsepol, statically links the Rust/C runtime, and fails if any
+binary retains an ELF `NEEDED` entry. To additionally exercise the finished
+binaries against a policy during packaging:
 
 ```bash
 scripts/build-portable-release.sh --policy /path/to/policy
 ```
 
+The optional static native compatibility artifact remains available for direct
+loader comparison. It downloads the official libsepol 3.11 source only when it
+is not cached, verifies its pinned SHA-256, and includes that corresponding
+source archive:
+
+```bash
+scripts/build-portable-release.sh --native-libsepol --policy /path/to/policy
+```
+
 The archive and checksum are written to `dist/`. It includes licenses, man
-pages, shell completions, per-file hashes, and corresponding setools-rs and
-libsepol source; the setools-rs source archive vendors the locked Cargo
-dependencies for offline rebuilds. See [the release guide](RELEASING.md) and
-[third-party notice](THIRD_PARTY.md).
+pages, shell completions, per-file hashes, and corresponding setools-rs source;
+the source archive vendors the locked Cargo dependencies for offline rebuilds.
+The native compatibility archive additionally includes the exact libsepol
+source. See [the release guide](RELEASING.md) and [third-party notice](THIRD_PARTY.md).
 
 Cargo uses its standard output layout:
 
@@ -264,6 +320,7 @@ build or test dependencies of this project.
 | `crates/setools-sepol` | project-owned C bridge and native loading |
 | `crates/setools-policy` | immutable owned policy model |
 | `crates/setools-policy-binary` | bounded pure Rust binary-policy parser |
+| `fuzz` | independent binary-policy libFuzzer target |
 | `crates/setools-query` | query preparation and matching |
 | `crates/setools-checker` | configuration-driven policy checks |
 | `crates/setools-diff` | semantic policy comparison |
@@ -279,9 +336,10 @@ build or test dependencies of this project.
 ## Publication state
 
 This repository can be cloned, built, tested, tagged, and released on its own.
-The x86_64 Linux static archive is the first portable binary distribution. The
-internal crates currently set `publish = false`: crates.io publication is
-deferred until the library APIs stabilize. See [RELEASING.md](RELEASING.md).
+The x86_64 Linux pure Rust static archive is the first portable binary
+distribution. The internal crates currently set `publish = false`: crates.io
+publication is deferred until the library APIs stabilize. See
+[RELEASING.md](RELEASING.md).
 
 ## License
 

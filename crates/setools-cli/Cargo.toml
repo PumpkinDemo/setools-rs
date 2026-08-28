@@ -8,13 +8,18 @@ authors.workspace = true
 license = "GPL-2.0-only"
 publish = false
 
+[features]
+default = []
+native-libsepol = ["dep:setools-sepol"]
+
 [dependencies]
 setools-checker = { path = "../setools-checker" }
 setools-diff = { path = "../setools-diff" }
 setools-graph = { path = "../setools-graph" }
 setools-policy = { path = "../setools-policy" }
+setools-policy-binary = { path = "../setools-policy-binary" }
 setools-query = { path = "../setools-query" }
-setools-sepol = { path = "../setools-sepol" }
+setools-sepol = { path = "../setools-sepol", optional = true }
 
 [lints]
 workspace = true

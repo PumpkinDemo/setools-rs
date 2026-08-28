@@ -98,14 +98,42 @@ CLI 兼容目标是 SETools 4.7.1。新格式或 API 只能作为附加能力引
   在当前 managed environment prolonged analysis 后收到 SIGKILL，原因尚不能归因。
 - native backend 已移除 libselinux：running-policy discovery 由安全 Rust 实现，bridge
   ABI 6 只链接 libsepol；默认动态 binary 不再传递依赖 PCRE2。
-- 首个 x86_64 Linux portable release 已实现：`scripts/build-portable-release.sh` 固定并
-  校验 libsepol 3.11，构建无任何 ELF `NEEDED` 的 static PIE，打包六个 binary、license、
-  man/completion、校验清单和双方完整 source。ADR 0004 记录构建与支持边界。
-- M7 已开始：独立、零 unsafe/FFI 的 `setools-policy-binary` 实现 version 15..=35 的
-  SELinux/Xen bounded metadata parser，并与 libsepol loader 差分；它尚未接入 CLI。
+- x86_64 Linux portable release 默认构建 pure Rust static PIE：
+  `scripts/build-portable-release.sh` 不检查、下载、编译或链接 libsepol，并拒绝任何 ELF
+  `NEEDED`。`--native-libsepol` 是保留的 static compatibility flavor；它固定并校验
+  libsepol 3.11，随包带对应 source。两种 archive 都包含六个 binary、license、
+  man/completion、校验清单和 setools-rs corresponding source。ADR 0004 记录边界。
+- M7 已完成全部八个 symbol family：独立、零 unsafe/FFI 的
+  `setools-policy-binary` 实现 version 15..=35 的 SELinux/Xen header、compatibility
+  table、前置 ebitmap、common、object-class、role、type、user、Boolean、sensitivity 与
+  category parser；新增 role
+  dominates/authorized-types/bounds、type/attribute flavor、alias、permissive、typebounds，
+  user bounds/MLS range、MLS alias/category set，并覆盖 v20..=23 隐式 attribute gap。
+  可独立重建的 role/user/Boolean/sensitivity/category owned model 和 type 的主名/flavor/
+  alias/permissive/bounds 已与 libsepol 差分。AVTAB 与 conditional rule body 也已完成：
+  覆盖 v15..=19 merged record、v20+ compact record、standard/type/xperm rule、Boolean
+  postfix 及 true/false branch，并在产品 fixture 和真实 policy 上逐条匹配 libsepol。
+  RBAC role transition/allow 与 filename transition 也已完成，覆盖 v15..=25 隐式
+  process/domain class、v26+ 显式 class、v25..=32 expanded filename record 和 v33+
+  compressed bitmap。共享 security context、全部 SELinux/Xen object-context family、
+  genfs table、MLS range transition、policy capability 与全部尾部 `type_attr_map` 也已
+  完成；named attribute concrete expansion 与 libsepol 一致，并兼容 v20..=23 无名
+  attribute gap。`PureRustPolicyLoader` 已重建完整 immutable `Policy`；产品
+  SELinux/Xen、filename、RBAC、MLS fixture 及当前真实 policy 的 full owned snapshot 与
+  libsepol 语义一致，真实 policy 精确消费至 EOF。strict EOF/oversize、exhaustive
+  truncation/bit-mutation tests 与独立 cargo-fuzz target 已有。parser retained allocation
+  与完整 owned reconstruction 共用 conservative logical budget，涵盖 model container、
+  string、nested data、B-tree name index 和 v20..=23 temporary attribute expansion；
+  `native-libsepol` 是 opt-in compatibility feature。默认 binary 用 pure Rust loader；
+  native feature 下 `SETOOLS_POLICY_BACKEND` 支持 `libsepol`、`rust`、`pure-rust`，六个
+  product CLI fixture 和 selected real-policy command 的双 backend parity 已验证。
 - 六个 CLI 的 command-specific JSON v1 与发布文档资产均已完成；M6 尚未整体关闭，
-  只剩 Python binding、MCP、GUI 的后续集成边界决策。下一最小工作包先测量并定位
-  full `sediff --stats POLICY POLICY` 的 component 时间/内存增长。
+  只剩 Python binding、MCP、GUI 的后续集成边界决策。M7 已完成：allocation lifecycle、
+  cargo-fuzz coverage run、可选 backend 与 product/real-policy parity 均已记录。当前
+  M7/M8 与 pure portable-release packaging 均已完成：pure Rust loader 已是默认 binary，
+  libsepol bridge 为 opt-in compatibility feature。后续工作处理长期 coverage run、full
+  `sediff` 性能诊断或新的兼容差异；不回退正常 source build 对 native library 的零依赖。
+  full `sediff` 性能问题仍保留为独立 backlog。
 
 常用验证命令：
 
@@ -117,6 +145,7 @@ cargo run -p setools-xtask -- check
 python3 scripts/benchmark-cli.py --list
 cargo build --release -p setools-cli --bin sesearch --bin seinfo --bin sediff --bin sedta --bin seinfoflow --bin sechecker
 scripts/build-portable-release.sh --policy /path/to/policy
+scripts/build-portable-release.sh --native-libsepol --policy /path/to/policy
 ```
 
 ## 不可破坏的设计约束
@@ -141,10 +170,11 @@ scripts/build-portable-release.sh --policy /path/to/policy
 - library crate 保持 LGPL-2.1-only 边界。
 - CLI program 与测试保持 GPL-2.0-only 边界。
 - 新增依赖前确认用途、license 和维护状态。
-- 默认通过 `pkg-config` 动态链接 libsepol，并用 `cc` 编译 bridge；不把
-  bindgen/libclang 作为默认构建要求。
-- portable release 使用经 SHA-256 固定的 libsepol source/static archive；更新版本或
-  digest 前必须检查 license、ABI、完整测试和真实 policy。
+- `native-libsepol` feature 通过 `pkg-config` 动态链接 libsepol，并用 `cc` 编译 bridge；
+  默认 pure Rust build 不需要它，也不把 bindgen/libclang 作为要求。
+- 只有 `--native-libsepol` portable release 使用经 SHA-256 固定的 libsepol
+  source/static archive；更新版本或 digest 前必须检查 license、ABI、完整测试和真实
+  policy。默认 pure Rust portable release 不含该 source 或 native bridge。
 
 ## 每次会话结束时
 

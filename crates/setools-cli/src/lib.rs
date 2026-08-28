@@ -5,6 +5,8 @@ use std::fmt;
 use std::process::ExitCode;
 
 mod json;
+mod policy_loader;
+mod runtime;
 mod sechecker;
 mod sediff;
 mod sedta;

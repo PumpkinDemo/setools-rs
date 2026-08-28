@@ -1,17 +1,17 @@
 //! `seinfo` argument parsing, component queries, and text/versioned JSON rendering.
 
-use crate::json;
+use crate::{
+    json, policy_loader,
+    runtime::{local_log_timestamp, running_policy_info, use_default_sigpipe},
+};
 
 use setools_policy::{
     Boolean, Category, ConstraintExpressionToken, ConstraintKind, ConstraintOperator,
     ConstraintRule, DefaultRule, HandleUnknown, LabelingRule, MlsLevel, MlsRange, ObjectClass,
-    Policy, PolicyLoader, RbacRuleKind, Role, SecurityContext, Sensitivity, TargetPlatform,
-    TeRuleKind, TypeOrAttributeId, TypeSymbol, User,
+    Policy, RbacRuleKind, Role, SecurityContext, Sensitivity, TargetPlatform, TeRuleKind,
+    TypeOrAttributeId, TypeSymbol, User,
 };
 use setools_query::{BoolQuery, ObjClassQuery, RoleQuery, TypeAttributeQuery, TypeQuery};
-use setools_sepol::{
-    LibsepolLoader, LoadError, local_log_timestamp, running_policy_info, use_default_sigpipe,
-};
 use std::ffi::OsString;
 use std::io::{self, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -1117,7 +1117,7 @@ fn load_policy(options: &Options) -> Result<(Policy, PathBuf), String> {
             "setools.policyrep",
             &format!("Opening SELinux policy \"{}\"", path.display()),
         );
-        match LibsepolLoader.load(&path) {
+        match policy_loader::load(&path) {
             Ok(policy) => {
                 log_policy_load_debug(options, &policy);
                 log_message(
@@ -1128,8 +1128,8 @@ fn load_policy(options: &Options) -> Result<(Policy, PathBuf), String> {
                 );
                 return Ok((policy, path));
             }
-            Err(error) if !explicit && error.code() == 3 && !path.exists() => continue,
-            Err(error) => return Err(compat_load_error(&path, &error)),
+            Err(error) if !explicit && error.is_not_found() && !path.exists() => continue,
+            Err(error) => return Err(policy_loader::format_error(&path, &error)),
         }
     }
     Err("Unable to locate an SELinux policy to load.".to_owned())
@@ -1177,14 +1177,6 @@ fn log_policy_load_debug(options: &Options, policy: &Policy) {
             "setools.policyrep",
             "Creating level_val_to_struct.",
         );
-    }
-}
-
-fn compat_load_error(path: &Path, error: &LoadError) -> String {
-    if error.code() == 3 && !path.exists() {
-        format!("[Errno 2] No such file or directory: '{}'", path.display())
-    } else {
-        error.to_string()
     }
 }
 
